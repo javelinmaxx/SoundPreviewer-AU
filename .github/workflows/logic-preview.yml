@@ -1,0 +1,30 @@
+name: Logic AU preview
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-preview:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Verify inspection, planning and launch scripts
+        run: python3 -m unittest discover -s tests/scripts -p 'test_*.py'
+      - name: Compile and render real Apple Audio Units
+        run: bash scripts/Setup-LogicPreview.sh --self-test
+      - name: Verify incremental setup
+        run: bash scripts/Setup-LogicPreview.sh
