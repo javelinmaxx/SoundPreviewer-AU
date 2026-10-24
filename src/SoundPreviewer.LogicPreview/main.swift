@@ -177,9 +177,13 @@ func render(_ request: Request, directory: URL) throws -> Result {
         throw PreviewError("Cannot create stereo rendering format.")
     }
     for (index, unit) in units.enumerated() {
-        guard unit.auAudioUnit.outputBusses.count == 1,
-              unit.auAudioUnit.inputBusses.count == (index == 0 ? 0 : 1) else {
-            throw PreviewError("Only single-output instruments and single-input/output effects are supported.")
+        let inputs = unit.auAudioUnit.inputBusses.count
+        let outputs = unit.auAudioUnit.outputBusses.count
+        // AUv2 music devices, including Apple DLS, may expose one nominal input
+        // through the AUAudioUnit bridge. Leave it unconnected: this graph has
+        // MIDI input only, with no audio input or side-chain route to discard.
+        guard outputs == 1, (index == 0 ? inputs <= 1 : inputs == 1) else {
+            throw PreviewError("Unsupported AU buses at chain index \(index): \(inputs) input(s), \(outputs) output(s).")
         }
         engine.attach(unit)
         unit.auAudioUnit.isRenderingOffline = true
