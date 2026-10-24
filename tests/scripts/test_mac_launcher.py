@@ -56,7 +56,7 @@ class MacLauncherTests(unittest.TestCase):
         self.assertEqual(
             ["build", "src/SoundPreviewer.App/SoundPreviewer.App.csproj", "-c", "Release",
              f"-p:RestoreConfigFile={self.root}/NuGet.Config"], calls[0]["args"])
-        self.assertEqual(str(self.root), calls[0]["cwd"])
+        self.assertEqual(self.root.resolve(), Path(calls[0]["cwd"]).resolve())
         self.assertEqual([str(self.root / "src/SoundPreviewer.App/bin/Release/net8.0/SoundPreviewer.dll"),
                           "--data-directory", "a library with spaces"], calls[1]["args"])
         self.assertEqual(str(self.root / ".build/nuget-packages"), calls[0]["packages"])
