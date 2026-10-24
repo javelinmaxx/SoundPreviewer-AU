@@ -82,6 +82,7 @@ public partial class App
         loading.Closing += (_, eventArgs) => eventArgs.Cancel = !finished;
         loading.Opened += async (_, _) =>
         {
+            Program.RecordStartup("Storage preparation window opened.");
             string? retained = null;
             try
             {
@@ -131,6 +132,8 @@ public partial class App
         // successfully loaded this library, on both the direct and migration paths.
         _rememberLibraryOnOpen = !SmokeTest;
         var main = new MainWindow();
+        Program.RecordStartup("Main window constructed.");
+        main.Opened += (_, _) => Program.RecordStartup("Main window opened.");
         desktop.MainWindow = main;
         if (show) main.Show();
     }
@@ -163,6 +166,7 @@ public partial class App
 
     private static void FailInstalledStartup(IClassicDesktopStyleApplicationLifetime desktop, Exception error)
     {
+        Program.RecordStartup("Storage startup failed: " + error);
         if (!SmokeTest) { ShowStartupMessage(desktop, error.Message, "无法打开本地音色库"); return; }
         if (Directory.Exists(DataDirectory)) File.WriteAllText(Path.Combine(DataDirectory, "ui-startup-error.txt"), error.ToString());
         desktop.Shutdown(1);

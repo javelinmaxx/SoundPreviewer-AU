@@ -16,6 +16,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import wave
 
 import logic_patch_inspector as inspector
@@ -26,6 +27,15 @@ DEFAULT_WORKER = PROJECT / ".build/logic-preview/LogicPreview"
 
 class PreviewError(ValueError):
     """A patch cannot be represented or a worker failed to produce valid audio."""
+
+
+def validate_options(notes, velocity, sample_rate, hold, tail, bpm, timeout):
+    if not (1 <= len(notes) <= 16 and all(type(note) is int and 0 <= note <= 127 for note in notes)
+            and 1 <= velocity <= 127 and sample_rate in (44100, 48000)
+            and math.isfinite(hold) and 0.05 <= hold <= 5 and math.isfinite(tail) and 0 <= tail <= 5
+            and (hold + tail) * len(notes) <= 60 and math.isfinite(bpm) and 20 <= bpm <= 300
+            and math.isfinite(timeout) and 1 <= timeout <= 600):
+        raise PreviewError("Invalid preview timing, notes, velocity, sample rate, tempo or timeout.")
 
 
 def plan_patch(report: dict, au_chain_only=False) -> dict:
@@ -104,18 +114,38 @@ def _extract_states(data: bytes) -> dict[int, bytes]:
     return states
 
 
-def _run_worker(worker: Path, manifest: Path, timeout: float):
+def _run_worker(worker: Path, manifest: Path, timeout: float, cancel_event=None):
     process = subprocess.Popen([str(worker), "--request", str(manifest)], stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
-        output, errors = process.communicate(timeout=timeout)
+        if cancel_event is None:
+            output, errors = process.communicate(timeout=timeout)
+        else:
+            deadline = time.monotonic() + timeout
+            while True:
+                if cancel_event.is_set():
+                    raise KeyboardInterrupt()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(str(worker), timeout)
+                try:
+                    output, errors = process.communicate(timeout=min(0.25, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
     except (subprocess.TimeoutExpired, KeyboardInterrupt):
         # Only terminate the group created for this render, never another app's AU host.
-        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         try:
             process.communicate(timeout=2)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             process.communicate()
         raise
     if process.returncode:
@@ -153,16 +183,12 @@ def validate_wav(path: Path, request: dict) -> dict:
 
 
 def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain_only=False,
-                   notes=(60, 84, 36), velocity=89, sample_rate=44100, hold=0.5, tail=0.35, bpm=120, timeout=120) -> dict:
+                   notes=(60, 84, 36), velocity=89, sample_rate=44100, hold=0.5, tail=0.35, bpm=120, timeout=120,
+                   cancel_event=None) -> dict:
     if sys.platform != "darwin":
         raise PreviewError("Native AU preview requires macOS. Inspection and planning can run on other systems.")
     patch = inspector.resolve_patch_path(patch)
-    if not (1 <= len(notes) <= 16 and all(type(note) is int and 0 <= note <= 127 for note in notes)
-            and 1 <= velocity <= 127 and sample_rate in (44100, 48000)
-            and math.isfinite(hold) and 0.05 <= hold <= 5 and math.isfinite(tail) and 0 <= tail <= 5
-            and (hold + tail) * len(notes) <= 60 and math.isfinite(bpm) and 20 <= bpm <= 300
-            and math.isfinite(timeout) and 1 <= timeout <= 600):
-        raise PreviewError("Invalid preview timing, notes, velocity, sample rate, tempo or timeout.")
+    validate_options(notes, velocity, sample_rate, hold, tail, bpm, timeout)
     source_root = patch.resolve()
     destination = output.absolute()
     if destination.suffix.lower() != ".wav" or destination.resolve().is_relative_to(source_root):
@@ -197,7 +223,7 @@ def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain
                    "tailSeconds": tail, "bpm": bpm}
         manifest = staging / "manifest.json"
         manifest.write_text(json.dumps(request, allow_nan=False), encoding="utf-8")
-        _run_worker(worker, manifest, timeout)
+        _run_worker(worker, manifest, timeout, cancel_event)
         result_path = staging / "result.json"
         if result_path.is_symlink() or not result_path.is_file() or result_path.stat().st_size > 1024 * 1024:
             raise PreviewError("Worker returned no valid bounded result file.")
@@ -242,8 +268,10 @@ def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("patch", type=Path)
+    parser.add_argument("patch", type=Path, help="Logic .patch package or library folder (folders render recursively)")
     parser.add_argument("--output", type=Path, help="New WAV filename; defaults to a unique artifacts/logic-preview file")
+    parser.add_argument("--recursive", "-r", action="store_true", help="Batch-render patches recursively, also accepting a single patch")
+    parser.add_argument("--output-dir", type=Path, help="Batch output folder; mirrors source subfolders and preserves existing WAVs")
     parser.add_argument("--worker", type=Path, default=DEFAULT_WORKER)
     parser.add_argument("--au-chain-only", action="store_true", help="Explicitly preview the recognized AU chain while omitting uninterpreted Logic metadata/mixer controls")
     parser.add_argument("--play", action="store_true", help="Play the validated WAV with macOS afplay")
@@ -259,6 +287,30 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         notes = tuple(int(value) for value in args.notes.split(","))
+        validate_options(notes, args.velocity, args.sample_rate, args.hold, args.tail, args.bpm, args.timeout)
+        args.patch = args.patch.expanduser()
+        folder = args.patch.is_dir() and args.patch.suffix.lower() != ".patch"
+        if args.recursive or args.output_dir or folder:
+            from logic_patch_batch import render_batch
+            if args.output:
+                raise PreviewError("Batch mode uses --output-dir, not --output.")
+            output_dir = args.output_dir or PROJECT / "artifacts/logic-preview/batch" / (args.patch.stem or "library")
+            def progress(index, total, entry):
+                print(f"[{index}/{total}] {entry['status']}: {entry['relative_source']}", file=sys.stderr)
+                if entry["status"] == "failed":
+                    print("  " + entry["message"], file=sys.stderr)
+            report = render_batch(args.patch, output_dir, args.worker, render_one=render_preview, progress=progress,
+                                  au_chain_only=args.au_chain_only, notes=notes, velocity=args.velocity,
+                                  sample_rate=args.sample_rate, hold=args.hold, tail=args.tail,
+                                  bpm=args.bpm, timeout=args.timeout)
+            if args.json:
+                print(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False))
+            else:
+                print(f"Batch finished: {report['rendered']} rendered, {report['skipped_existing']} existing preserved, "
+                      f"{report['failed']} failed, {report['discovery_failed']} discovery errors, {report['unrun']} unrun.")
+                print("Report: " + report["report_path"])
+                print("Batch previews are saved without playback. Logic equivalence is unverified.")
+            return 130 if report["cancelled"] else 1 if report["failed"] or report["discovery_failed"] else 0
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
         name = re.sub(r"[^\w.-]", "_", args.patch.stem)[:80] or "patch"
         output = args.output or PROJECT / "artifacts/logic-preview" / f"{name}-{stamp}.wav"

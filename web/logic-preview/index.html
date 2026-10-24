@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="preview-token" content="__PREVIEW_TOKEN__">
+  <title>Logic Preview · SoundPreviewer</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><div class="brand"><span class="mark" aria-hidden="true">♫</span><div><p class="eyebrow">SOUNDPREVIEWER</p><h1>Logic Preview</h1></div></div><span id="connection" class="pill">Connecting…</span></header>
+    <p class="intro">Turn your patch library into a collection you can hear.</p>
+    <div id="notice" class="notice" role="alert" hidden></div>
+    <div class="workspace">
+      <form id="render-form" class="card">
+        <h2>Choose your sounds</h2>
+        <p class="muted">Select one patch or a folder. Folders are searched recursively.</p>
+        <label for="source">Patch or library folder</label>
+        <input id="source" name="source" required spellcheck="false" placeholder="/Users/you/Music/Audio Music Apps/Patches">
+        <div class="browse"><button type="button" data-browse="folder">Choose folder</button><button type="button" data-browse="patch">Choose patch</button></div>
+        <label for="output">Save WAVs to <span class="optional">optional</span></label>
+        <input id="output" spellcheck="false" placeholder="Use the default preview folder">
+        <p class="hint">Subfolders are preserved. Existing WAVs are kept and skipped.</p>
+        <label class="check"><input id="chain-only" type="checkbox"><span>AU chain only <span class="optional">approximate</span></span></label>
+        <p class="hint">Allow uninterpreted Logic metadata to be omitted. Logic-native presets, MIDI effects and complex routing remain unsupported.</p>
+        <details><summary>Preview settings</summary><div class="settings">
+          <div><label for="notes">Notes · MIDI</label><input id="notes" value="60,84,36" required></div>
+          <div><label for="velocity">Velocity</label><input id="velocity" type="number" min="1" max="127" value="89"></div>
+          <div><label for="hold">Hold · seconds</label><input id="hold" type="number" min="0.05" max="5" step="0.05" value="0.5"></div>
+          <div><label for="tail">Tail · seconds</label><input id="tail" type="number" min="0" max="5" step="0.05" value="0.35"></div>
+          <div><label for="bpm">Tempo · BPM</label><input id="bpm" type="number" min="20" max="300" value="120"></div>
+          <div><label for="sample-rate">Sample rate</label><select id="sample-rate"><option value="44100">44.1 kHz</option><option value="48000">48 kHz</option></select></div>
+        </div></details>
+        <div class="actions"><button id="render" class="primary" type="submit" disabled>Render previews <span aria-hidden="true">→</span></button><button id="cancel" class="stop" type="button" hidden>Stop</button></div>
+      </form>
+      <section class="card monitor" aria-labelledby="progress-title">
+        <div class="section-head"><h2 id="progress-title">Your session</h2><span id="job-status" class="pill">Ready</span></div>
+        <div class="visualizer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <p id="job-message" class="job-message" role="status">Choose a library to get started.</p>
+        <p id="current" class="current"></p>
+        <progress id="progress" value="0" max="1" aria-label="Rendering progress"></progress>
+        <p id="progress-label" class="muted">No renders running</p>
+        <div class="metrics"><div><strong id="rendered">0</strong><span>Saved</span></div><div><strong id="existing">0</strong><span>Existing</span></div><div><strong id="failed">0</strong><span>Failed</span></div></div>
+        <div class="destination"><p class="eyebrow">OUTPUT FOLDER</p><p id="saved-folder">Each render saves a WAV and a batch report.</p></div>
+        <details id="scan-notes" hidden><summary>Scan notes</summary><ul id="scan-list"></ul></details>
+      </section>
+    </div>
+    <section class="card results"><div class="section-head"><div><h2>Saved previews</h2><p class="muted">Listen as files finish. Nothing is played automatically.</p></div><span id="result-count" class="pill">0 results</span></div>
+      <div id="empty" class="empty"><span aria-hidden="true">◉</span><p>Your rendered sounds will appear here.</p></div>
+      <div class="table-scroll"><table id="results-table" hidden><thead><tr><th>Patch</th><th>Result</th><th>Listen</th></tr></thead><tbody id="results"></tbody></table></div>
+    </section>
+    <footer>Runs locally on your Mac · One render at a time · AU-chain previews are not verified Logic bounces</footer>
+  </main>
+</body>
+</html>

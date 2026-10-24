@@ -6,6 +6,7 @@ import plistlib
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -152,6 +153,19 @@ if mode=='wrong_notes': result['notes'][0]['pitch']=127
             for timing in (float("nan"), float("inf"), -1):
                 with self.assertRaises(preview.PreviewError):
                     preview.render_preview(self.root, self.output, Path("unused"), hold=timing)
+
+    @unittest.skipIf(os.name == "nt", "POSIX worker cancellation")
+    def test_cancellation_event_terminates_worker_without_publishing(self):
+        cancel = threading.Event()
+        timer = threading.Timer(0.1, cancel.set)
+        timer.start()
+        try:
+            with mock.patch.object(preview.sys, "platform", "darwin"), mock.patch.dict(os.environ, LOGIC_TEST_MODE="timeout"):
+                with self.assertRaises(KeyboardInterrupt):
+                    preview.render_preview(self.root, self.output, self.fake_worker(), cancel_event=cancel)
+            self.assertFalse(self.output.exists())
+        finally:
+            timer.cancel()
 
 
 if __name__ == "__main__":

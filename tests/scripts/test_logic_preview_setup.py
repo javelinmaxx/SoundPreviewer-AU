@@ -101,6 +101,29 @@ out.chmod(0o755)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(str((caller / "Sounds/Deluxe Classic.patch").resolve()), json.loads(result.stdout))
 
+    def test_web_and_batch_launchers_use_the_shared_setup_and_correct_arguments(self):
+        project = Path(__file__).resolve().parents[2]
+        for launcher, script, supplied, expected in (
+                ("Start-LogicPreview-Web.command", "logic_preview_web.py", [], ["--open", "--port", "5002"]),
+                ("Render-LogicPatches.command", "logic_patch_preview.py", ["a library"], ["--recursive", "a library"])):
+            shutil.copy2(project / launcher, self.root / launcher)
+            (self.root / "scripts" / script).write_text("import json,sys\nprint(json.dumps(sys.argv[1:]))\n")
+            result = subprocess.run(["/bin/bash", str(self.root / launcher), *supplied], env=self.environment,
+                                    capture_output=True, text=True, timeout=20)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(expected, json.loads(result.stdout))
+
+    def test_packaged_software_launcher_sets_mode_and_retains_arguments(self):
+        project = Path(__file__).resolve().parents[2]
+        application = self.root / "TEST ONLY.app"
+        executable = application / "Contents/MacOS/SoundPreviewer"
+        executable.parent.mkdir(parents=True)
+        self.executable(executable, "import json,os,sys\nprint(json.dumps([os.environ.get('SOUNDPREVIEWER_SOFTWARE_RENDERING'),sys.argv[1:]]))\n")
+        result = subprocess.run(["/bin/bash", str(project / "scripts/Start-MacApp-Software.sh"), str(application), "--example"],
+                                env=self.environment, capture_output=True, text=True, timeout=20)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["1", ["--software-rendering", "--example"]], json.loads(result.stdout))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,6 +26,7 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        Program.RecordStartup("Avalonia framework initialized.");
         if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
         {
             base.OnFrameworkInitializationCompleted();
@@ -164,6 +165,7 @@ public partial class App : Application
         }
         content.Children.Add(close);
         window.Content = content;
+        window.Opened += (_, _) => Program.RecordStartup("Startup message window opened: " + title);
         desktop.MainWindow = window;
     }
 }

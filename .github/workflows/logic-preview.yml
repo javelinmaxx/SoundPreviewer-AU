@@ -28,3 +28,48 @@ jobs:
         run: bash scripts/Setup-LogicPreview.sh --self-test
       - name: Verify incremental setup
         run: bash scripts/Setup-LogicPreview.sh
+  desktop-software-ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Build desktop and isolated test fixtures
+        run: |
+          dotnet restore SoundPreviewer.sln --configfile NuGet.Config
+          dotnet build SoundPreviewer.sln -c Release --no-restore
+          dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --create-ui-fixture artifacts/mac-software-ui
+      - name: Verify an actual software-rendered desktop window
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          root = pathlib.Path('artifacts/mac-software-ui').resolve()
+          env = dict(os.environ, SOUNDPREVIEWER_STARTUP_LOG=str(root / 'startup.log'))
+          with (root / 'desktop-stdout.txt').open('w') as output, (root / 'desktop-stderr.txt').open('w') as errors:
+              subprocess.run(['dotnet', 'src/SoundPreviewer.App/bin/Release/net8.0/SoundPreviewer.dll',
+                              '--software-rendering', '--smoke-test', '--data-directory', str(root)],
+                             env=env, stdout=output, stderr=errors, check=True, timeout=300)
+          result = json.loads((root / 'ui-smoke.json').read_text())
+          assert result['Loaded'] is True, result
+          assert 'software rendering requested: True' in (root / 'startup.log').read_text()
+          print('PASS: original desktop UI loaded and completed its smoke checks with software rendering.')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: software-ui-${{ matrix.os }}
+          path: |
+            artifacts/mac-software-ui/*.log
+            artifacts/mac-software-ui/ui-*.json
+            artifacts/mac-software-ui/ui-*.txt
+            artifacts/mac-software-ui/desktop-*.txt
+          retention-days: 7
