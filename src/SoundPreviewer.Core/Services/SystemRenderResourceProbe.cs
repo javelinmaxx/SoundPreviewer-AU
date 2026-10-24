@@ -89,20 +89,33 @@ public sealed class SystemRenderResourceProbe : IRenderResourceProbe
     private RenderMemorySnapshot CaptureMac()
     {
         string output = RunSystemTool("/bin/ps", ["-axo", "pid=,ppid=,rss=,time="]);
+        return ParseMacProcessTable(output, rootProcessId);
+    }
+
+    private static RenderMemorySnapshot ParseMacProcessTable(string output, int rootProcessId)
+    {
         var table = new List<RenderProcessUsage>();
-        foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        // Sampling runs every 100 ms. Slice the ps output in place instead of
+        // allocating a line, field array and four strings for every system PID.
+        ReadOnlySpan<char> remaining = output.AsSpan();
+        Span<Range> fields = stackalloc Range[5]; // The fifth field detects unexpected trailing columns.
+        while (!remaining.IsEmpty)
         {
-            string[] parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length != 4 || !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out int pid) ||
-                !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int parent) ||
-                !long.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out long kilobytes))
+            int newline = remaining.IndexOf('\n');
+            ReadOnlySpan<char> line = newline < 0 ? remaining : remaining[..newline];
+            remaining = newline < 0 ? [] : remaining[(newline + 1)..];
+            if (line.IsEmpty) continue;
+            int count = line.SplitAny(fields, " \t\r", StringSplitOptions.RemoveEmptyEntries);
+            if (count != 4 || !int.TryParse(line[fields[0]], NumberStyles.None, CultureInfo.InvariantCulture, out int pid) ||
+                !int.TryParse(line[fields[1]], NumberStyles.None, CultureInfo.InvariantCulture, out int parent) ||
+                !long.TryParse(line[fields[2]], NumberStyles.None, CultureInfo.InvariantCulture, out long kilobytes))
                 throw new FormatException("ps 返回了无法识别的进程表。");
-            table.Add(new(pid, parent, checked(kilobytes * 1024), ParseCpuSeconds(parts[3])));
+            table.Add(new(pid, parent, checked(kilobytes * 1024), ParseCpuSeconds(line[fields[3]])));
         }
         return RenderMemorySnapshot.FromProcesses(rootProcessId, table);
     }
 
-    private static double? ParseCpuSeconds(string value)
+    private static double? ParseCpuSeconds(ReadOnlySpan<char> value)
     {
         double days = 0;
         int dash = value.IndexOf('-');
@@ -111,12 +124,13 @@ public sealed class SystemRenderResourceProbe : IRenderResourceProbe
             if (!double.TryParse(value[..dash], NumberStyles.None, CultureInfo.InvariantCulture, out days)) return null;
             value = value[(dash + 1)..];
         }
-        string[] parts = value.Split(':');
-        if (parts.Length is < 2 or > 3) return null;
+        Span<Range> parts = stackalloc Range[4];
+        int count = value.Split(parts, ':');
+        if (count is < 2 or > 3) return null;
         double seconds = 0;
-        foreach (string part in parts)
+        for (int i = 0; i < count; i++)
         {
-            if (!double.TryParse(part, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double component) || component < 0) return null;
+            if (!double.TryParse(value[parts[i]], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double component) || component < 0) return null;
             seconds = seconds * 60 + component;
         }
         seconds += days * 86400;

@@ -120,6 +120,7 @@ internal static partial class Program
             ("Parallel storage reservations and startup baselines are shared safely", TestParallelBudgetAndBaselineAsync),
             ("Parallel database failures roll back shared mappings and same-key WAV bytes", TestParallelCommitRollbackAsync),
             ("CPU tiers and conservative tree-RSS admission use deterministic resource policy", TestRenderResourcePolicyAsync),
+            ("macOS resource text preserves process ancestry, RSS and CPU counters", TestMacResourceParsingAsync),
             ("Platform resource probes include the application, child and grandchild", TestSystemRenderResourceProbeAsync),
             ("Injected resource pressure stops every worker and unreadable probes fail closed", TestRenderResourceStopAsync)
         };
