@@ -156,6 +156,7 @@ def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain
                    notes=(60, 84, 36), velocity=89, sample_rate=44100, hold=0.5, tail=0.35, bpm=120, timeout=120) -> dict:
     if sys.platform != "darwin":
         raise PreviewError("Native AU preview requires macOS. Inspection and planning can run on other systems.")
+    patch = inspector.resolve_patch_path(patch)
     if not (1 <= len(notes) <= 16 and all(type(note) is int and 0 <= note <= 127 for note in notes)
             and 1 <= velocity <= 127 and sample_rate in (44100, 48000)
             and math.isfinite(hold) and 0.05 <= hold <= 5 and math.isfinite(tail) and 0 <= tail <= 5

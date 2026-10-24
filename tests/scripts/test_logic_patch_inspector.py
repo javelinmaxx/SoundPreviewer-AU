@@ -222,6 +222,33 @@ class LogicPatchInspectorTests(unittest.TestCase):
                 inspector.inspect_patch(self.root)
             (self.root / name).write_bytes(data)
 
+    def test_selected_inner_files_resolve_to_their_existing_package(self):
+        expected = inspector.inspect_patch(self.root)["inspected_state_sha256"]
+        for member in ("data.plist", "#Root.cst"):
+            report = inspector.inspect_patch(self.root / member)
+            self.assertEqual(str(self.root), report["path"])
+            self.assertEqual(expected, report["inspected_state_sha256"])
+        with self.assertRaisesRegex(inspector.InspectionError, "does not exist"):
+            inspector.inspect_patch(self.root / "missing.cst")
+
+    def test_quoted_shell_escapes_and_trailing_space_have_actionable_errors(self):
+        incorrect = str(self.root).replace(" ", "\\ ") + " "
+        with self.assertRaises(inspector.InspectionError) as captured:
+            inspector.inspect_patch(incorrect)
+        self.assertIn("inside double quotes", str(captured.exception))
+        self.assertIn("ends with a space", str(captured.exception))
+
+    def test_standalone_preset_and_flat_patch_errors_explain_the_selected_type(self):
+        preset = Path(self.temporary.name) / "standalone.pst"
+        preset.write_bytes(b"test only")
+        with self.assertRaisesRegex(inspector.InspectionError, "standalone .cst/.pst/.aupreset"):
+            inspector.inspect_patch(preset)
+        flat = Path(self.temporary.name) / "flat.patch"
+        for data, explanation in ((b"PK\x03\x04test", "ZIP archive"), (b"bplist00test", "binary-plist file")):
+            flat.write_bytes(data)
+            with self.assertRaisesRegex(inspector.InspectionError, explanation):
+                inspector.inspect_patch(flat)
+
     def test_invalid_plist_and_cyclic_or_expansive_graphs_are_bounded(self):
         for data in (b"not a plist", b"<?xml broken", plistlib.dumps([]),
                      b'<?xml version="1.0"?><!DOCTYPE plist [<!ENTITY x "test">]><plist><dict/></plist>'):

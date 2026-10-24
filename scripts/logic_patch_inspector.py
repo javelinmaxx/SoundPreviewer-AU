@@ -261,10 +261,42 @@ def parse_au_inventory(text: str) -> set[tuple[str, str, str]]:
     return components
 
 
+def resolve_patch_path(path: str | Path) -> Path:
+    """Accept a package or a directly selected CST/plist inside that package.
+
+    Do not infer packages from unrelated parent folders or follow package links.
+    Expand a quoted ~/ path, but leave shell escaping to the caller's shell.
+    """
+    root = Path(path).expanduser().absolute()
+    if root.is_file() and root.parent.suffix.lower() == ".patch" and (root.name == "data.plist" or root.suffix.lower() == ".cst"):
+        root = root.parent
+    if root.is_symlink():
+        raise InspectionError(f"Selected path is a symbolic link: {str(root)!r}. Select the actual .patch package folder instead.")
+    if not root.exists():
+        hint = " Check the path; quote paths containing spaces."
+        if "\\ " in str(path):
+            hint += " Backslash-escaped spaces were passed literally; inside double quotes use spaces without backslashes."
+        if str(path).endswith(" "):
+            hint += " The supplied path ends with a space; remove it if unintended."
+        raise InspectionError(f"Selected path does not exist: {str(root)!r}." + hint)
+    if root.suffix.lower() != ".patch":
+        description = "folder" if root.is_dir() else f"{root.suffix or 'extensionless'} file"
+        raise InspectionError(f"Selected {description}: {str(root)!r}. Choose a Logic Library .patch package, not a standalone .cst/.pst/.aupreset or its parent library folder.")
+    if not root.is_dir():
+        kind = "a file"
+        if root.is_file():
+            with root.open("rb") as source:
+                header = source.read(8)
+            if header.startswith(b"PK\x03\x04"):
+                kind = "a ZIP archive; extract it first"
+            elif header == b"bplist00":
+                kind = "a binary-plist file (this single-file patch variant is not supported yet)"
+        raise InspectionError(f"Selected .patch is {kind}, not a package directory: {str(root)!r}. This reader expects a folder containing data.plist and #Root.cst.")
+    return root
+
+
 def inspect_patch(path: str | Path, inventory: set[tuple[str, str, str]] | None = None) -> dict:
-    root = Path(path).absolute()
-    if root.suffix.lower() != ".patch" or root.is_symlink() or not root.is_dir():
-        raise InspectionError("Expected an existing, unlinked .patch package directory.")
+    root = resolve_patch_path(path)
     remaining = MAX_PACKAGE_BYTES
     files = {}
 
@@ -346,7 +378,7 @@ def inspect_patch(path: str | Path, inventory: set[tuple[str, str, str]] | None 
 
 
 def format_report(report: dict) -> str:
-    lines = [f"Logic patch: {report['name']}", f"Saved-state fingerprint: {report['inspected_state_sha256']}",
+    lines = [f"Logic patch: {report['name']}", f"Package: {report['path']}", f"Saved-state fingerprint: {report['inspected_state_sha256']}",
              "Rendering: not implemented (read-only inspection)"]
     for channel in report["channels"]:
         setting = channel["settings"] or {}

@@ -91,6 +91,16 @@ out.chmod(0o755)
         self.assertEqual(7, result.returncode, result.stderr)
         self.assertEqual(["--play", "a sound.patch", "--no-play"], json.loads(result.stdout))
 
+    def test_relative_patch_paths_are_resolved_from_the_callers_directory(self):
+        caller = Path(self.temporary.name) / "another folder"
+        (caller / "Sounds/Deluxe Classic.patch").mkdir(parents=True)
+        (self.root / "scripts/logic_patch_preview.py").write_text(
+            "import json,sys\nfrom pathlib import Path\nprint(json.dumps(str(Path(sys.argv[2]).resolve())))\n")
+        result = subprocess.run(["/bin/bash", str(self.root / "Preview-LogicPatch.command"), "Sounds/Deluxe Classic.patch"],
+                                cwd=caller, env=self.environment, capture_output=True, text=True, timeout=20)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(str((caller / "Sounds/Deluxe Classic.patch").resolve()), json.loads(result.stdout))
+
 
 if __name__ == "__main__":
     unittest.main()
