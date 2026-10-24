@@ -49,7 +49,7 @@ else
     echo "Logic AU preview worker is current ($architecture)." >&2
 fi
 if [[ "$self_test" == 1 ]]; then
-    # The test restores fresh Apple DLS/low-pass instances and validates real PCM.
+    # The test restores fresh Apple Sampler/low-pass instances and validates PCM.
     "$python_command" - "$build_dir/LogicPreview" <<'PY'
 import subprocess, sys
 subprocess.run([sys.argv[1], '--self-test'], check=True, timeout=180)

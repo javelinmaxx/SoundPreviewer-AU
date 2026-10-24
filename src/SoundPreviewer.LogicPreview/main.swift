@@ -179,9 +179,8 @@ func render(_ request: Request, directory: URL) throws -> Result {
     for (index, unit) in units.enumerated() {
         let inputs = unit.auAudioUnit.inputBusses.count
         let outputs = unit.auAudioUnit.outputBusses.count
-        // AUv2 music devices, including Apple DLS, may expose one nominal input
-        // through the AUAudioUnit bridge. Leave it unconnected: this graph has
-        // MIDI input only, with no audio input or side-chain route to discard.
+        // An optional main instrument input stays unconnected and receives
+        // silence: this graph has MIDI input only, with no audio/side-chain route.
         guard outputs == 1, (index == 0 ? inputs <= 1 : inputs == 1) else {
             throw PreviewError("Unsupported AU buses at chain index \(index): \(inputs) input(s), \(outputs) output(s).")
         }
@@ -289,13 +288,29 @@ func selfTest() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("soundpreviewer-au-test-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
-    let synthComponent = Component(type: "aumu", subtype: "dls ", manufacturer: "appl")
+    let synthComponent = Component(type: "aumu", subtype: "samp", manufacturer: "appl")
     let filterComponent = Component(type: "aufx", subtype: "lpas", manufacturer: "appl")
+    // Use a private generated sample, avoiding reliance on an installed DLS
+    // bank. Apple Sampler is single-output; DLS exposes additional output buses.
+    let sampleURL = root.appendingPathComponent("test-only-sample.wav")
+    let sampleFrames = 44100
+    var sample = Data("RIFF".utf8)
+    sample.littleEndian(UInt32(36 + sampleFrames * 2))
+    sample.append(contentsOf: "WAVEfmt ".utf8)
+    sample.littleEndian(UInt32(16)); sample.littleEndian(UInt16(1)); sample.littleEndian(UInt16(1))
+    sample.littleEndian(UInt32(44100)); sample.littleEndian(UInt32(88200))
+    sample.littleEndian(UInt16(2)); sample.littleEndian(UInt16(16))
+    sample.append(contentsOf: "data".utf8); sample.littleEndian(UInt32(sampleFrames * 2))
+    for frame in 0..<sampleFrames {
+        sample.littleEndian(Int16((sin(Double(frame) * 2 * .pi * 261.625565 / 44100) * 6000).rounded()))
+    }
+    try sample.write(to: sampleURL, options: .withoutOverwriting)
     var results: [Result] = []
     for wet in [false, true] {
         let directory = root.appendingPathComponent(wet ? "wet" : "dry")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let synth = try instantiate(synthComponent)
+        let synth = AVAudioUnitSampler()
+        try synth.loadAudioFiles(at: [sampleURL])
         let instrument = try writeState(synth, component: synthComponent, name: "instrument.aupreset", directory: directory)
         var effects: [Plugin] = []
         if wet {

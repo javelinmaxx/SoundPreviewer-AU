@@ -101,8 +101,8 @@ bash scripts/Setup-LogicPreview.sh --self-test
 Portable tests cover planning, file preservation, timeout/failure cleanup,
 synthetic worker contracts, setup caching and shell argument forwarding. Compiler
 and worker stubs do not validate Apple frameworks. The native self-test exports
-and restores fresh Apple DLS synth and low-pass states, checks the restored
-cutoff, renders audible WAVs and verifies that the filter attenuates the high
+and restores fresh Apple Sampler and low-pass states, checks the restored
+cutoff, loads a generated test sample, renders audible WAVs and verifies that the filter attenuates the high
 note. It requires a Mac; it is not a commercial-plug-in compatibility test.
 The separate `Logic AU preview` GitHub Actions workflow runs it on Apple Silicon
 and Intel runners when Actions is enabled for the repository.
