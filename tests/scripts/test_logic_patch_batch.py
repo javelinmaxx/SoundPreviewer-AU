@@ -66,6 +66,23 @@ class LogicPatchBatchTests(unittest.TestCase):
         self.assertEqual(b"existing audio", (self.output / "A/Pad.wav").read_bytes())
         self.assertNotEqual(report["report_path"], repeated["report_path"])
 
+    def test_native_instrument_skips_are_counted_without_failing_batch(self):
+        self.patch("native.patch")
+        self.patch("supported.patch")
+        def renderer(source, target, worker, **options):
+            if source.name == "native.patch":
+                raise batch.inspector.NativeInstrumentSkipped("TEST ONLY native instrument skipped")
+            target.write_bytes(b"TEST ONLY sentinel")
+            return {"output": str(target)}
+        with mock.patch.object(batch.sys, "platform", "darwin"):
+            report = batch.render_batch(self.source, self.output, self.worker, render_one=renderer)
+        self.assertEqual(1, report["skipped_unsupported"])
+        self.assertEqual(0, report["failed"])
+        self.assertEqual(1, report["rendered"])
+        self.assertFalse((self.output / "native.wav").exists())
+        self.assertEqual("skipped_unsupported", report["results"][0]["status"])
+        self.assertEqual(1, json.loads(Path(report["report_path"]).read_text())["skipped_unsupported"])
+
     def test_a_failure_does_not_stop_other_patches(self):
         self.patch("bad.patch")
         self.patch("good.patch")

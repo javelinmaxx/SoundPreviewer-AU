@@ -110,6 +110,8 @@ def render_batch(source: Path, output_dir: Path, worker: Path, *, render_one, pr
                         controls = {"cancel_event": cancel_event} if cancel_event is not None else {}
                         result = render_one(patch, target, worker, **controls, **options)
                         entry.update(status="rendered", result=result)
+                except inspector.NativeInstrumentSkipped as error:
+                    entry.update(status="skipped_unsupported", message=str(error))
                 except KeyboardInterrupt:
                     entry.update(status="cancelled", message="Rendering cancelled; earlier completed files were preserved.")
                     report["cancelled"] = True
@@ -125,6 +127,7 @@ def render_batch(source: Path, output_dir: Path, worker: Path, *, render_one, pr
     finally:
         report["rendered"] = sum(entry["status"] == "rendered" for entry in report["results"])
         report["skipped_existing"] = sum(entry["status"] == "skipped_existing" for entry in report["results"])
+        report["skipped_unsupported"] = sum(entry["status"] == "skipped_unsupported" for entry in report["results"])
         report["failed"] = sum(entry["status"] == "failed" for entry in report["results"])
         report["discovery_failed"] = sum(issue["status"] == "discovery_failed" for issue in issues)
         report["unrun"] = len(patches) - len(report["results"])

@@ -80,6 +80,22 @@ class LogicPreviewWebTests(unittest.TestCase):
             time.sleep(0.01)
         self.fail("Synthetic job did not finish")
 
+    def test_native_instrument_skip_is_visible_and_not_failed(self):
+        supported = self.jobs.render_one
+        def renderer(patch, output, worker, **settings):
+            self.assertTrue(settings["au_chain_only"])
+            if patch.name == "One.patch":
+                raise web.preview.PatchSkipped("TEST ONLY Logic-native instrument")
+            return supported(patch, output, worker, **settings)
+        self.jobs.render_one = renderer
+        job = self.wait_job(self.start_job())
+        self.assertEqual("completed", job["status"])
+        self.assertEqual(1, job["skipped_unsupported"])
+        self.assertEqual(0, job["failed"])
+        self.assertEqual(1, job["rendered"])
+        self.assertEqual("skipped_unsupported", job["results"][0]["status"])
+        self.assertFalse((self.output / "Group/One.wav").exists())
+
     def test_serves_ui_and_assets_with_same_origin_controls(self):
         status, headers, page = self.request("/")
         self.assertEqual(200, status)

@@ -345,6 +345,22 @@ public sealed partial class RenderQueue
                         {
                             item.AttemptInProgress = false;
                             var preset = item.Record;
+                            bool unsupported = result?.SkippedUnsupported == true && result.NonRetryable &&
+                                plugin.Synth == SynthKind.LogicPatch && plugin.Backend == RenderBackend.LogicPatch;
+                            if (unsupported)
+                            {
+                                preset.Status = PresetStatus.Unsupported;
+                                preset.Message = result!.Message;
+                                preset.LastRenderOutcome = "已跳过";
+                                preset.LastRenderMessage = preset.Message;
+                                preset.Attempts = Math.Max(0, preset.Attempts - 1);
+                                if (item.Previous is not null) RestorePreview(preset, item.Previous, "已跳过 Logic 原生乐器，保留上次预览：" + preset.Message);
+                                pending.Remove(item);
+                                summary.SkippedUnsupported++;
+                                Persist(item);
+                                Report(QueueStages.Rendering, preset.Message, item, itemElapsed: itemClock.Elapsed.TotalSeconds);
+                                continue;
+                            }
                             preset.Status = PresetStatus.Failed;
                             preset.Message = failure ?? "渲染工作进程未返回有效结果。";
                             preset.LastRenderOutcome = "失败";
@@ -745,7 +761,7 @@ public sealed partial class RenderQueue
                     EffectiveConcurrency = terminal ? 0 : concurrency.Capacity,
                     PreparingCount = terminal ? 0 : Math.Max(0, memoryLeases.Count - activeWorkers),
                     ConcurrencyMessage = terminal ? "" : concurrency.Reason,
-                    Generated = summary.Generated, Reused = summary.Reused, Failed = summary.Failed,
+                    Generated = summary.Generated, Reused = summary.Reused, Failed = summary.Failed, SkippedUnsupported = summary.SkippedUnsupported,
                     Unconfigured = summary.Unconfigured, Unavailable = summary.Unavailable, RetryLimited = summary.RetryLimited
                 });
             }

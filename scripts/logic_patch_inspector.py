@@ -32,6 +32,10 @@ MAX_PLIST_BYTES = 8 * 1024 * 1024
 FORMAT_REFERENCE = "LogicFiles OCuA/UCuA observations; not an Apple format specification"
 
 
+class NativeInstrumentSkipped(ValueError):
+    """Recognized Logic-native instrument: no external preview is possible."""
+
+
 class InspectionError(ValueError):
     """The package is missing required files or contains invalid bounded input."""
 

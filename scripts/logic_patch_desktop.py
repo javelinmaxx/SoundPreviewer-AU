@@ -59,7 +59,7 @@ def render_request(request: dict) -> dict:
     expected = preset["ContentHash"]
     if len(expected) != 64 or package_identity(patch) != expected:
         raise preview.PreviewError("Logic Patch changed since scanning. Rescan before rendering.")
-    allow = plugin.get("AllowLogicPatchApproximation", False)
+    allow = plugin.get("AllowLogicPatchApproximation", True)
     if type(allow) is not bool:
         raise preview.PreviewError("AU-chain approximation must be an explicit checkbox value.")
     notes = ([template["LowNote"], template["MiddleNote"], template["HighNote"]]
@@ -88,6 +88,9 @@ def render_request(request: dict) -> dict:
                           for index, pitch in enumerate(notes)],
                 "Message": "Logic AU 链已生成；与 Logic 完整通道条等效性未验证。" +
                            " ".join(report["approximations"])}
+    except preview.PatchSkipped as error:
+        return {"Success": False, "NonRetryable": True, "SkippedUnsupported": True,
+                "AdapterVersion": "logic-au-chain-desktop-v1", "Message": str(error)}
     except BaseException:
         if created:
             output.unlink(missing_ok=True)

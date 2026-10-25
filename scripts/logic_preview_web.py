@@ -61,15 +61,15 @@ class Jobs:
             preview.validate_options(**options)
         except (TypeError, ValueError) as error:
             raise ValueError(f"Invalid render settings: {error}") from error
-        if type(payload.get("au_chain_only", False)) is not bool:
+        if type(payload.get("au_chain_only", True)) is not bool:
             raise ValueError("AU-chain-only must be a checkbox value.")
-        options["au_chain_only"] = payload.get("au_chain_only", False)
+        options["au_chain_only"] = payload.get("au_chain_only", True)
         with self.lock:
             if self.active and self.jobs[self.active]["status"] in ("scanning", "rendering", "cancelling"):
                 raise BusyError("A render is already running. Wait for it or stop it first.")
             identifier = uuid.uuid4().hex
             job = {"id": identifier, "status": "scanning", "source": str(source), "output": str(output),
-                   "total": None, "processed": 0, "rendered": 0, "failed": 0, "skipped_existing": 0,
+                   "total": None, "processed": 0, "rendered": 0, "failed": 0, "skipped_existing": 0, "skipped_unsupported": 0,
                    "current": "", "results": [], "discovery_issues": [], "message": "Scanning for patches…",
                    "cancel": threading.Event(), "thread": None}
             self.jobs[identifier] = job
@@ -93,7 +93,7 @@ class Jobs:
             with self.lock:
                 job.update(processed=index, total=total, current=entry["relative_source"])
                 job["results"].append(entry)
-                key = {"rendered": "rendered", "failed": "failed", "skipped_existing": "skipped_existing"}.get(entry["status"])
+                key = {"rendered": "rendered", "failed": "failed", "skipped_existing": "skipped_existing", "skipped_unsupported": "skipped_unsupported"}.get(entry["status"])
                 if key:
                     job[key] += 1
 

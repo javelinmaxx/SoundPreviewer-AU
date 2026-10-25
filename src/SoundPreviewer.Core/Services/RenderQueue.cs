@@ -34,6 +34,7 @@ public sealed record QueueProgress(int Completed, int Total, string PresetName, 
     public int Generated { get; init; }
     public int Reused { get; init; }
     public int Failed { get; init; }
+    public int SkippedUnsupported { get; init; }
     public int Unconfigured { get; init; }
     public int Unavailable { get; init; }
     public int RetryLimited { get; init; }
@@ -57,6 +58,7 @@ public sealed class QueueResult
     public int Generated { get; internal set; }
     public int Reused { get; internal set; }
     public int Failed { get; internal set; }
+    public int SkippedUnsupported { get; internal set; }
     public int Unconfigured { get; internal set; }
     public int Unavailable { get; internal set; }
     public int RetryLimited { get; internal set; }
@@ -75,7 +77,7 @@ public sealed class QueueResult
     public long MemoryBudgetBytes { get; internal set; }
     public long PeakWorkingSetBytes { get; internal set; }
     public bool ResourceStopped { get; internal set; }
-    public int Processed => Generated + Reused + Failed + Unconfigured + Unavailable + RetryLimited;
+    public int Processed => Generated + Reused + Failed + Unconfigured + Unavailable + RetryLimited + SkippedUnsupported;
     public int Remaining => Math.Max(0, Eligible - Processed);
     public IReadOnlyDictionary<SynthKind, int> UnconfiguredSynths => unconfiguredSynths;
     public IReadOnlyList<RendererUnavailable> UnconfiguredRenderers => RendererGroups(unconfiguredRenderers);
@@ -89,7 +91,7 @@ public sealed class QueueResult
             string missing = Unconfigured == 0 ? "" : " 未选择生成方式：" + DescribeRenderers(UnconfiguredRenderers);
             string unavailable = Unavailable == 0 ? "" : " 已配置，暂不可用：" + DescribeRenderers(UnavailableRenderers);
             return prefix + $"新生成 {Generated} 项，复用 {Reused} 项，失败 {Failed} 项，未选择生成方式 {Unconfigured} 项，已配置暂不可用 {Unavailable} 项，重试上限 {RetryLimited} 项。" +
-                Selection.Description + "。" + missing + unavailable;
+                Selection.Description + "。" + (SkippedUnsupported == 0 ? "" : $" Logic 原生乐器已跳过 {SkippedUnsupported} 项。") + missing + unavailable;
         }
     }
 

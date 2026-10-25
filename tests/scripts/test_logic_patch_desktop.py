@@ -69,6 +69,7 @@ class DesktopBridgeTests(unittest.TestCase):
         self.fixture.write([block(plistlib.dumps(au_state())),
                             block(plistlib.dumps({"$archiver": "NSKeyedArchiver"}), direct=True, slot=9)])
         self.request["Preset"]["ContentHash"] = desktop.package_identity(self.fixture.root)
+        self.request["Plugin"]["AllowLogicPatchApproximation"] = False
         with self.assertRaisesRegex(ValueError, "au-chain-only"):
             self.render()
         self.request["Plugin"]["AllowLogicPatchApproximation"] = True
@@ -78,8 +79,10 @@ class DesktopBridgeTests(unittest.TestCase):
         self.fixture.write([block(pst_state())])
         self.request["Preset"]["ContentHash"] = desktop.package_identity(self.fixture.root)
         self.request["Plugin"]["AllowLogicPatchApproximation"] = True
-        with self.assertRaises(ValueError):
-            self.render()
+        result = self.render()
+        self.assertFalse(result["Success"])
+        self.assertTrue(result["NonRetryable"])
+        self.assertTrue(result["SkippedUnsupported"])
         self.assertFalse(self.fixture.output.exists())
 
     def test_publish_checks_reserved_size_and_preserves_existing_audio(self):

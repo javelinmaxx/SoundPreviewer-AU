@@ -27,7 +27,7 @@ function addResult(entry, index) {
   patch.append(detail);
   const badge = document.createElement("span");
   badge.className = "badge " + entry.status;
-  badge.textContent = {rendered: "Saved", skipped_existing: "Existing", failed: "Failed", cancelled: "Stopped"}[entry.status] || entry.status;
+  badge.textContent = {rendered: "Saved", skipped_unsupported: "Skipped: native instrument", skipped_existing: "Existing", failed: "Failed", cancelled: "Stopped"}[entry.status] || entry.status;
   status.append(badge);
   if (["rendered", "skipped_existing"].includes(entry.status)) {
     const url = `/api/audio/${currentJob}/${index}`;
@@ -50,7 +50,7 @@ async function poll() {
     $("job-status").textContent = {scanning: "Scanning", rendering: "Rendering", cancelling: "Stopping", completed: "Finished", completed_with_errors: "Finished with errors", cancelled: "Stopped", failed: "Failed"}[job.status] || job.status;
     $("job-message").textContent = job.message;
     $("current").textContent = job.current;
-    $("rendered").textContent = job.rendered; $("existing").textContent = job.skipped_existing;
+    $("rendered").textContent = job.rendered; $("existing").textContent = job.skipped_existing + (job.skipped_unsupported || 0);
     $("failed").textContent = job.failed + job.discovery_issues.filter(issue => issue.status === "discovery_failed").length;
     $("saved-folder").textContent = job.output;
     if (job.total === null) $("progress").removeAttribute("value");

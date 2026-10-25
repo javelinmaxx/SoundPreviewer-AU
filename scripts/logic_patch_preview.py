@@ -29,6 +29,9 @@ class PreviewError(ValueError):
     """A patch cannot be represented or a worker failed to produce valid audio."""
 
 
+PatchSkipped = inspector.NativeInstrumentSkipped
+
+
 def validate_options(notes, velocity, sample_rate, hold, tail, bpm, timeout):
     if not (1 <= len(notes) <= 16 and all(type(note) is int and 0 <= note <= 127 for note in notes)
             and 1 <= velocity <= 127 and sample_rate in (44100, 48000)
@@ -39,6 +42,13 @@ def validate_options(notes, velocity, sample_rate, hold, tail, bpm, timeout):
 
 
 def plan_patch(report: dict, au_chain_only=False) -> dict:
+    # PST denotes Logic-native saved state, not every Apple-manufactured AU.
+    # Check every strip first: do not substitute another instrument in a stack.
+    for channel in report["channels"]:
+        for plugin in channel.get("plugins", []):
+            if plugin["state_format"] == "logic_pst" and plugin["role"] == "instrument":
+                label = plugin.get("display_name") or plugin.get("preset_filename") or "Logic-native instrument"
+                raise PatchSkipped(f"Skipped patch: {label} at slot {plugin['slot']} uses Logic-native PST instrument state and requires Logic Pro.")
     if report["patch_format_version"] != 40014 or len(report["channels"]) != 1:
         raise PreviewError("Only observed format 40014 patches with one channel strip are supported; track stacks require a routing backend.")
     channel = report["channels"][0]
@@ -59,9 +69,16 @@ def plan_patch(report: dict, au_chain_only=False) -> dict:
     plugins = channel["plugins"]
     if not plugins or len({p["slot"] for p in plugins}) != len(plugins):
         raise PreviewError("The strip has no recognized instrument or contains ambiguous duplicate slots.")
+    omitted_effects = []
+    supported = []
     for plugin in plugins:
+        if (plugin["state_format"] == "logic_pst" and plugin["role"] == "audio_fx"
+                and plugin["role_source"] == "wrapper_bits"):
+            omitted_effects.append({"slot": plugin["slot"], "name": plugin.get("display_name") or plugin.get("preset_filename") or "Logic-native effect",
+                                    "reason": "Logic-native PST effect is omitted from the preview"})
+            continue
         if plugin["state_format"] != "au_preset":
-            raise PreviewError(f"Slot {plugin['slot']}: Logic-native PST state needs Logic itself; an external AU worker cannot restore it.")
+            raise PreviewError(f"Slot {plugin['slot']}: unsupported native state or ambiguous role; it cannot be safely omitted.")
         component = plugin["component"]
         if component is None or plugin.get("identity_conflict"):
             raise PreviewError(f"Slot {plugin['slot']}: missing/conflicting AU component identity.")
@@ -70,8 +87,9 @@ def plan_patch(report: dict, au_chain_only=False) -> dict:
             raise PreviewError(f"Slot {plugin['slot']}: MIDI effects, generators and ambiguous roles are not supported.")
         if plugin["role_source"] == "wrapper_bits" and plugin.get("wrapper_component") != component:
             raise PreviewError(f"Slot {plugin['slot']}: the wrapper does not confirm the saved-state AU identity.")
-    instruments = [p for p in plugins if p["role"] == "instrument"]
-    effects = [p for p in plugins if p["role"] == "audio_fx"]
+        supported.append(plugin)
+    instruments = [p for p in supported if p["role"] == "instrument"]
+    effects = [p for p in supported if p["role"] == "audio_fx"]
     if len(instruments) != 1 or len(effects) > 8:
         raise PreviewError("Exactly one AU instrument and at most eight audio effects are supported.")
     descriptive = {"Filename", "Root", "UUID", "Channel_name", "Channel_instID", "Channel_seqColorIndex",
@@ -93,8 +111,11 @@ def plan_patch(report: dict, au_chain_only=False) -> dict:
         approximations.append("Saved output format is not confirmed stereo; preview uses stereo.")
     if approximations and not au_chain_only:
         raise PreviewError("The patch contains uninterpreted Logic state. Use --au-chain-only explicitly for an approximate recognized-AU-chain preview. " + " ".join(approximations))
+    # Effect omission is explicitly requested behavior, independent of whether
+    # the user also permits omission of otherwise uninterpreted mixer metadata.
+    approximations.extend(f"Omitted Logic-native effect at slot {effect['slot']}: {effect['name']}." for effect in omitted_effects)
     return {"instrument": instruments[0], "effects": effects, "approximations": approximations,
-            "scope": "recognized_au_chain_only", "logic_equivalence_verified": False}
+            "omitted_effects": omitted_effects, "scope": "recognized_au_chain_only", "logic_equivalence_verified": False}
 
 
 def _extract_states(data: bytes) -> dict[int, bytes]:
@@ -188,7 +209,7 @@ def validate_wav(path: Path, request: dict) -> dict:
             "peak": peak / 32768, "note_rms": rms}
 
 
-def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain_only=False,
+def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain_only=True,
                    notes=(60, 84, 36), velocity=89, sample_rate=44100, hold=0.5, tail=0.35, bpm=120, timeout=120,
                    cancel_event=None, inherit_process_group=False) -> dict:
     if sys.platform != "darwin":
@@ -201,11 +222,11 @@ def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain
         raise PreviewError("Output must be a .wav outside the source patch package.")
     if destination.exists() or destination.is_symlink():
         raise PreviewError("Output already exists; choose a new path to preserve previous audio.")
+    report = inspector.inspect_patch(patch)
+    plan = plan_patch(report, au_chain_only)
     worker = Path(worker).absolute()
     if not worker.is_file() or not os.access(worker, os.X_OK):
         raise PreviewError("Native worker is missing. Run bash scripts/Setup-LogicPreview.sh first.")
-    report = inspector.inspect_patch(patch)
-    plan = plan_patch(report, au_chain_only)
     with tempfile.TemporaryDirectory(prefix="soundpreviewer-logic-") as temporary:
         staging = Path(temporary)
         snapshot = staging / "source.patch"
@@ -268,6 +289,7 @@ def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain
             publish.unlink(missing_ok=True)
     return {"success": True, "output": str(destination), "scope": plan["scope"],
             "logic_equivalence_verified": False, "approximations": plan["approximations"],
+            "omitted_effects": plan["omitted_effects"],
             "inspected_state_sha256": report["inspected_state_sha256"], "metrics": metrics,
             "notes": list(notes), "component_chain": [plugin["component"] for plugin in plugins]}
 
@@ -279,7 +301,8 @@ def main(argv=None) -> int:
     parser.add_argument("--recursive", "-r", action="store_true", help="Batch-render patches recursively, also accepting a single patch")
     parser.add_argument("--output-dir", type=Path, help="Batch output folder; mirrors source subfolders and preserves existing WAVs")
     parser.add_argument("--worker", type=Path, default=DEFAULT_WORKER)
-    parser.add_argument("--au-chain-only", action="store_true", help="Explicitly preview the recognized AU chain while omitting uninterpreted Logic metadata/mixer controls")
+    parser.add_argument("--au-chain-only", action="store_true", default=True, help="Approximate recognized-AU-chain preview (default)")
+    parser.add_argument("--strict", dest="au_chain_only", action="store_false", help="Reject uninterpreted Logic metadata/mixer controls; native audio effects are still omitted")
     parser.add_argument("--play", action="store_true", help="Play the validated WAV with macOS afplay")
     parser.add_argument("--no-play", dest="play", action="store_false", help="Render without playback (overrides the launcher's default)")
     parser.add_argument("--json", action="store_true")
@@ -303,7 +326,7 @@ def main(argv=None) -> int:
             output_dir = args.output_dir or PROJECT / "artifacts/logic-preview/batch" / (args.patch.stem or "library")
             def progress(index, total, entry):
                 print(f"[{index}/{total}] {entry['status']}: {entry['relative_source']}", file=sys.stderr)
-                if entry["status"] == "failed":
+                if entry["status"] in ("failed", "skipped_unsupported"):
                     print("  " + entry["message"], file=sys.stderr)
             report = render_batch(args.patch, output_dir, args.worker, render_one=render_preview, progress=progress,
                                   au_chain_only=args.au_chain_only, notes=notes, velocity=args.velocity,
@@ -313,7 +336,7 @@ def main(argv=None) -> int:
                 print(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False))
             else:
                 print(f"Batch finished: {report['rendered']} rendered, {report['skipped_existing']} existing preserved, "
-                      f"{report['failed']} failed, {report['discovery_failed']} discovery errors, {report['unrun']} unrun.")
+                      f"{report['skipped_unsupported']} native-instrument patches skipped, {report['failed']} failed, {report['discovery_failed']} discovery errors, {report['unrun']} unrun.")
                 print("Report: " + report["report_path"])
                 print("Batch previews are saved without playback. Logic equivalence is unverified.")
             return 130 if report["cancelled"] else 1 if report["failed"] or report["discovery_failed"] else 0
@@ -336,6 +359,12 @@ def main(argv=None) -> int:
             except (OSError, subprocess.SubprocessError) as error:
                 print(f"Playback failed; the rendered WAV is preserved: {error}", file=sys.stderr)
                 return 1
+        return 0
+    except PatchSkipped as error:
+        if args.json:
+            print(json.dumps({"success": False, "status": "skipped_unsupported", "message": str(error)}))
+        else:
+            print(str(error))
         return 0
     except (PreviewError, inspector.InspectionError, OSError, ValueError, wave.Error, subprocess.SubprocessError) as error:
         print(f"Logic preview failed: {error}", file=sys.stderr)

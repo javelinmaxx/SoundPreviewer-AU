@@ -31,6 +31,8 @@ public static partial class RenderDispatcher
             if (outcome.ExitCode != 0) throw new InvalidDataException("Logic Patch 生成失败：" + outcome.StandardError.Trim());
             var result = JsonSerializer.Deserialize<RenderResult>(outcome.StandardOutput, LibraryJson.Options)
                 ?? throw new InvalidDataException("Logic Patch 生成器未返回有效结果。");
+            if (!result.Success && result.SkippedUnsupported && result.NonRetryable && result.AdapterVersion == LogicPatchRuntime.AdapterVersion)
+                return result;
             if (!result.Success || result.AdapterVersion != LogicPatchRuntime.AdapterVersion ||
                 !ApplicationPaths.SamePath(result.OutputPath, request.OutputPath))
                 throw new InvalidDataException("Logic Patch 返回的输出路径或适配器身份不匹配。");

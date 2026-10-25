@@ -66,6 +66,7 @@ internal static partial class Program
             ("Preview cleanup and directory migration preserve user metadata and sources", TestPreviewStorageAsync),
             ("Logic Patch packages index recursively and preserve source identity", TestLogicPatchIndexAsync),
             ("Logic Patch settings, readiness and cache policy", TestLogicPatchConfigurationAsync),
+            ("Logic Patch native instrument skips do not retry or replace existing previews", TestLogicPatchSkipQueueAsync),
             ("Audio Unit bundles, safe discovery and VST association", TestAudioUnitDiscoveryAsync),
             ("macOS bundles, Mach-O architectures and safe platform selection", TestMacPluginDiscoveryAsync),
             ("Installed Vital and Serum 2 metadata retain native standalone selection", TestShippingMacPluginDiscoveryAsync),
@@ -1995,6 +1996,15 @@ internal static partial class Program
         }
         if (mode == "wait") { await Task.Delay(TimeSpan.FromSeconds(30)); return 0; }
         if (mode == "noresult") return 9;
+        if (mode == "skip-native-instrument")
+        {
+            await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(new RenderResult
+            {
+                Message = "TEST ONLY: skipped Logic-native instrument", NonRetryable = true,
+                SkippedUnsupported = true, AdapterVersion = LogicPatchRuntime.AdapterVersion
+            }, LibraryJson.Options));
+            return 1;
+        }
         if (mode is "failure" or "permanent-compatibility-failure")
         {
             await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(new RenderResult { Message = "Test-only intentional failure.", NonRetryable = mode == "permanent-compatibility-failure" }, LibraryJson.Options));

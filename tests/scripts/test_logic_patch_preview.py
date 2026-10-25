@@ -1,5 +1,7 @@
 """Planner and process/file contracts; synthetic workers aren't native AU tests."""
 import json
+from contextlib import redirect_stdout
+import io
 import os
 from pathlib import Path
 import plistlib
@@ -51,8 +53,76 @@ class LogicPatchPreviewTests(unittest.TestCase):
             preview.plan_patch(self.report())
         self.assertTrue(preview.plan_patch(self.report(), True)["approximations"])
 
-    def test_never_silently_omits_native_pst_or_midi_effects(self):
-        for extra in (block(pst_state(), slot=3, role=0), block(plistlib.dumps(au_state("aumi")), slot=7, role=2)):
+    def test_native_instrument_skips_patch_in_every_mode(self):
+        self.write([block(pst_state(), slot=2, role=8)])
+        for allow in (False, True):
+            with self.assertRaisesRegex(preview.PatchSkipped, "Logic-native PST instrument"):
+                preview.plan_patch(self.report(), allow)
+
+    def test_native_effects_are_omitted_and_au_order_preserved(self):
+        self.write([block(plistlib.dumps(au_state())),
+                    block(plistlib.dumps(au_state("aufx", "Fx01")), slot=3, role=0),
+                    block(pst_state(), slot=4, role=0),
+                    block(plistlib.dumps(au_state("aufx", "Fx02")), slot=5, role=0)])
+        for allow in (False, True):
+            plan = preview.plan_patch(self.report(), allow)
+            self.assertEqual(["Fx01", "Fx02"], [p["component"]["subtype"] for p in plan["effects"]])
+            self.assertEqual([4], [p["slot"] for p in plan["omitted_effects"]])
+            self.assertIn("Omitted Logic-native effect", " ".join(plan["approximations"]))
+
+    def test_native_instrument_never_launches_host_and_cli_reports_skip(self):
+        self.write([block(pst_state(), slot=2, role=8)])
+        with mock.patch.object(preview.sys, "platform", "darwin"), mock.patch.object(preview, "_run_worker") as run:
+            with self.assertRaises(preview.PatchSkipped):
+                preview.render_preview(self.root, self.output, Path("missing-native-worker"))
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(0, preview.main([str(self.root), "--output", str(self.output), "--json"]))
+        run.assert_not_called()
+        self.assertEqual("skipped_unsupported", json.loads(output.getvalue())["status"])
+        self.assertFalse(self.output.exists())
+
+    def test_cli_defaults_to_approximation_with_strict_override(self):
+        for flags, expected in (([], True), (["--strict"], False)):
+            with mock.patch.object(preview, "render_preview", return_value={"success": True}) as render, redirect_stdout(io.StringIO()):
+                self.assertEqual(0, preview.main([str(self.root), "--output", str(self.output), "--json", *flags]))
+            self.assertEqual(expected, render.call_args.kwargs["au_chain_only"])
+
+    def test_cli_batch_counts_native_skip_without_type_or_import_mismatch(self):
+        self.write([block(pst_state(), slot=2, role=8)])
+        with mock.patch.object(preview.sys, "platform", "darwin"), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(0, preview.main([str(self.root), "--output-dir", str(self.output.parent / "batch"),
+                                            "--worker", str(self.fake_worker()), "--json"]))
+        report = json.loads(output.getvalue())
+        self.assertEqual(1, report["skipped_unsupported"])
+        self.assertEqual(0, report["failed"])
+
+    def test_render_manifest_excludes_pst_effect_and_preserves_public_apple_au(self):
+        self.write([block(plistlib.dumps(au_state())), block(pst_state(), slot=3, role=0),
+                    block(plistlib.dumps(au_state("aufx", "lpas", "appl")), slot=4, role=0)])
+        worker = self.fake_worker()
+        original = preview._run_worker
+        manifests = []
+        def capture(worker, manifest, *args):
+            manifests.append(json.loads(manifest.read_text()))
+            return original(worker, manifest, *args)
+        with mock.patch.object(preview.sys, "platform", "darwin"), mock.patch.object(preview, "_run_worker", side_effect=capture):
+            result = preview.render_preview(self.root, self.output, worker, hold=0.05, tail=0)
+        self.assertEqual([3], [effect["slot"] for effect in result["omitted_effects"]])
+        self.assertEqual(["lpas"], [effect["component"]["subtype"] for effect in manifests[0]["effects"]])
+        self.assertEqual("appl", manifests[0]["effects"][0]["component"]["manufacturer"])
+        self.assertTrue(self.output.exists())
+
+    def test_native_instrument_in_additional_strip_skips_entire_patch(self):
+        self.write([block(pst_state(), slot=2, role=8)])
+        native = self.report()["channels"][0]
+        self.write([block(plistlib.dumps(au_state()))])
+        report = self.report()
+        report["channels"].append(native)
+        with self.assertRaises(preview.PatchSkipped):
+            preview.plan_patch(report, True)
+
+    def test_midi_effects_and_unconfirmed_native_roles_remain_rejected(self):
+        for extra in (block(pst_state(), slot=3, role=2), block(plistlib.dumps(au_state("aumi")), slot=7, role=2)):
             self.write([block(plistlib.dumps(au_state())), extra])
             for allow in (False, True):
                 with self.assertRaises(preview.PreviewError):
