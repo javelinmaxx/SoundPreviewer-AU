@@ -29,10 +29,10 @@
   <Target Name="CopyRenderWorker" AfterTargets="Build">
     <ItemGroup>
       <WorkerFiles Include="$(WorkerOutputDirectory)SoundPreviewer.Worker*" />
-      <RendererFiles Include="$(WorkerOutputDirectory)Renderers/*" />
+      <RendererFiles Include="$(WorkerOutputDirectory)Renderers/**/*" />
     </ItemGroup>
     <Copy SourceFiles="@(WorkerFiles)" DestinationFolder="$(OutDir)" />
-    <Copy SourceFiles="@(RendererFiles)" DestinationFolder="$(OutDir)Renderers/" />
+    <Copy SourceFiles="@(RendererFiles)" DestinationFiles="@(RendererFiles->'$(OutDir)Renderers/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
   <Target Name="PublishRenderWorker" AfterTargets="Publish">
     <PropertyGroup>

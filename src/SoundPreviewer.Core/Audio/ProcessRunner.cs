@@ -9,7 +9,8 @@ public static class ProcessRunner
 {
     public static async Task<ProcessOutcome> RunAsync(string executable, IEnumerable<string> arguments,
         string workingDirectory, TimeSpan timeout, CancellationToken cancellationToken = default,
-        IReadOnlyDictionary<string, string?>? environmentOverrides = null, Action<int>? processStarted = null)
+        IReadOnlyDictionary<string, string?>? environmentOverrides = null, Action<int>? processStarted = null,
+        bool inheritProcessGroup = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo
@@ -22,7 +23,9 @@ public static class ProcessRunner
             foreach (var (name, value) in environmentOverrides)
                 if (value is null) start.Environment.Remove(name);
                 else start.Environment[name] = value;
-        string? processGroupFile = ProcessJob.ConfigureStart(start);
+        // Nested desktop bridges already belong to a supervised worker group.
+        // Keep their children in it so killing that worker cannot orphan an AU host.
+        string? processGroupFile = inheritProcessGroup ? null : ProcessJob.ConfigureStart(start);
         using var process = new Process { StartInfo = start };
         try
         {
@@ -34,7 +37,7 @@ public static class ProcessRunner
             throw;
         }
         ProcessJob job;
-        try { job = new ProcessJob(process, processGroupFile); }
+        try { job = new ProcessJob(process, processGroupFile, inheritProcessGroup); }
         catch
         {
             try { if (!process.HasExited) process.Kill(entireProcessTree: true); }

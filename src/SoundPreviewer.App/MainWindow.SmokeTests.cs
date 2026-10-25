@@ -59,6 +59,10 @@ public partial class MainWindow
         ShowDuplicates.IsChecked = true;
         if (PresetsView.Count != Presets.Count) throw new InvalidOperationException("显示重复项未恢复完整索引。");
         ShowDuplicates.IsChecked = false;
+        if (!SourceChoices.Any(choice => choice.Value == SynthKind.LogicPatch) ||
+            !SynthChoices.Any(choice => choice.Value == SynthKind.LogicPatch) ||
+            !BackendChoices.Any(choice => choice.Value == RenderBackend.LogicPatch))
+            throw new InvalidOperationException("Logic Patch 未出现在音源或生成方式选项中。");
         foreach (var synth in Enum.GetValues<SynthKind>())
         {
             var filter = FilterGroups.Single(group => group.Key == "synth").Options.Single(choice => choice.Key == synth.ToString());

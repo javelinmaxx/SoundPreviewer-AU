@@ -78,7 +78,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public string CategoryRulesStatus => _categoryRulesStatus;
     public List<Choice<SynthKind>> SynthChoices { get; } = Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind>(Labels.Synth(s), s)).ToList();
     public List<Choice<SynthKind?>> SourceChoices { get; } = [new("自动识别（混合音色包）", null), .. Enum.GetValues<SynthKind>().Where(s => s != SynthKind.Unknown).Select(s => new Choice<SynthKind?>(Labels.Synth(s), s))];
-    public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未选择生成方式", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer), new("Sushi（实验）", RenderBackend.Sushi)];
+    public List<Choice<RenderBackend>> BackendChoices { get; } = [new("未选择生成方式", RenderBackend.Unconfigured), new("Vital 原生", RenderBackend.VitalCli), new("外部工作进程", RenderBackend.ExternalWorker), new("DawDreamer", RenderBackend.DawDreamer), new("Sushi（实验）", RenderBackend.Sushi), new("Logic Patch AU 链", RenderBackend.LogicPatch)];
     public List<Choice<int>> ParallelRenderChoices { get; } = [new("自动（按 CPU 与内存）", 0), new("1 条（串行）", 1), new("2 条", 2), new("4 条", 4), new("8 条", 8), new("16 条", 16)];
     public List<Choice<int>> MemoryBudgetChoices { get; } = Enumerable.Range(RenderResourcePolicy.MinimumMemoryBudgetGiB,
         RenderResourcePolicy.MaximumMemoryBudgetGiB - RenderResourcePolicy.MinimumMemoryBudgetGiB + 1)
@@ -151,6 +151,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         int refreshedHost = PluginSelectionService.RefreshBundledHost(_settings.Plugins, X86HostPath, discovered: _settings.DiscoveredPlugins);
         int refreshedSushi = PluginSelectionService.RefreshBundledSushiHost(_settings.Plugins, SushiHostPath);
         int localPython = PluginSelectionService.RefreshLocalDawDreamer(_settings.Plugins, App.DataDirectory);
+        LogicPatchRuntime.Configure(_settings.Plugins, AppContext.BaseDirectory, App.DataDirectory);
         bool seededPluginDirectories = createdDirectoryConfiguration && _settings.PluginDirectories.Count == 0;
         if (seededPluginDirectories) _settings.PluginDirectories = ResolvePluginScanDirectories([], _settings.Plugins);
         if (seededPluginDirectories) _directoryConfiguration.Save(_settings);

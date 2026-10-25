@@ -19,7 +19,7 @@ compiler="$(xcrun --sdk macosx --find swiftc 2>/dev/null)" || { echo 'Install Xc
 sdk="$(xcrun --sdk macosx --show-sdk-path)"
 architecture="$(uname -m)"
 case "$architecture" in arm64|x86_64) ;; *) echo "Unsupported Mac architecture: $architecture" >&2; exit 2 ;; esac
-build_dir="$project_dir/.build/logic-preview"
+build_dir="${SOUNDPREVIEWER_LOGIC_BUILD_DIR:-$project_dir/.build/logic-preview}"
 [[ ! -L "$project_dir/.build" && ! -L "$build_dir" ]] || { echo 'Refusing a linked native build directory.' >&2; exit 2; }
 mkdir -p "$build_dir"
 source_file="$project_dir/src/SoundPreviewer.LogicPreview/main.swift"

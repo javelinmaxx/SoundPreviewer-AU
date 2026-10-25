@@ -114,9 +114,9 @@ def _extract_states(data: bytes) -> dict[int, bytes]:
     return states
 
 
-def _run_worker(worker: Path, manifest: Path, timeout: float, cancel_event=None):
+def _run_worker(worker: Path, manifest: Path, timeout: float, cancel_event=None, inherit_process_group=False):
     process = subprocess.Popen([str(worker), "--request", str(manifest)], stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True, start_new_session=True)
+                               stderr=subprocess.PIPE, text=True, start_new_session=not inherit_process_group)
     try:
         if cancel_event is None:
             output, errors = process.communicate(timeout=timeout)
@@ -136,14 +136,20 @@ def _run_worker(worker: Path, manifest: Path, timeout: float, cancel_event=None)
     except (subprocess.TimeoutExpired, KeyboardInterrupt):
         # Only terminate the group created for this render, never another app's AU host.
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            if inherit_process_group:
+                process.terminate()
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
         try:
             process.communicate(timeout=2)
         except subprocess.TimeoutExpired:
             try:
-                os.killpg(process.pid, signal.SIGKILL)
+                if inherit_process_group:
+                    process.kill()
+                else:
+                    os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             process.communicate()
@@ -184,7 +190,7 @@ def validate_wav(path: Path, request: dict) -> dict:
 
 def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain_only=False,
                    notes=(60, 84, 36), velocity=89, sample_rate=44100, hold=0.5, tail=0.35, bpm=120, timeout=120,
-                   cancel_event=None) -> dict:
+                   cancel_event=None, inherit_process_group=False) -> dict:
     if sys.platform != "darwin":
         raise PreviewError("Native AU preview requires macOS. Inspection and planning can run on other systems.")
     patch = inspector.resolve_patch_path(patch)
@@ -223,7 +229,7 @@ def render_preview(patch: Path, output: Path, worker=DEFAULT_WORKER, *, au_chain
                    "tailSeconds": tail, "bpm": bpm}
         manifest = staging / "manifest.json"
         manifest.write_text(json.dumps(request, allow_nan=False), encoding="utf-8")
-        _run_worker(worker, manifest, timeout, cancel_event)
+        _run_worker(worker, manifest, timeout, cancel_event, inherit_process_group)
         result_path = staging / "result.json"
         if result_path.is_symlink() or not result_path.is_file() or result_path.stat().st_size > 1024 * 1024:
             raise PreviewError("Worker returned no valid bounded result file.")

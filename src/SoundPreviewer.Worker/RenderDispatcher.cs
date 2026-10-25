@@ -26,6 +26,7 @@ public static partial class RenderDispatcher
     private static Task<RenderResult> RenderFixedAsync(RenderRequest request, CancellationToken cancellationToken) =>
         request.Plugin.Backend switch
         {
+            RenderBackend.LogicPatch => RenderLogicPatchAsync(request, cancellationToken),
             RenderBackend.VitalCli => RenderVitalAsync(request, cancellationToken),
             RenderBackend.ExternalWorker => RenderExternalAsync(request, cancellationToken),
             RenderBackend.DawDreamer => RenderExternalAsync(request, cancellationToken, dawdreamer: true),

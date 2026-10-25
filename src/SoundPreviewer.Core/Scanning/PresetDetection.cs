@@ -10,7 +10,7 @@ internal sealed record SynthDetection(SynthKind Synth, string Reason);
 
 internal static partial class PresetDetection
 {
-    public static bool SupportsAny(string extension) => extension.ToLowerInvariant() is ".vital" or ".vitalbank" or ".serumpreset" or ".fxp" or ".fxb" || IsSpireFormat(extension);
+    public static bool SupportsAny(string extension) => extension.ToLowerInvariant() is ".patch" or ".vital" or ".vitalbank" or ".serumpreset" or ".fxp" or ".fxb" || IsSpireFormat(extension);
 
     // Reveal Sound's manual documents legacy SPF/SBF; its sound store documents SPF2/SWZIP.
     // Recognizing a dedicated suffix only establishes indexing identity, not a verified loader.
@@ -23,6 +23,7 @@ internal static partial class PresetDetection
         SynthKind.Serum2 => "Serum 2",
         SynthKind.Sylenth1 => "Sylenth1",
         SynthKind.Spire => "Spire",
+        SynthKind.LogicPatch => "Logic Patch",
         _ => "未识别"
     };
 

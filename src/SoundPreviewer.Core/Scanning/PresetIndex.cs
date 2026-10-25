@@ -12,7 +12,7 @@ public static class PresetIndex
         var records = presets.ToList();
         var enabledSources = sources?.Where(source => source.Enabled).Select(source => source.Id).ToHashSet(StringComparer.Ordinal);
         var available = records.ToDictionary(record => record.Id,
-            record => (enabledSources is null || enabledSources.Contains(record.SourceId)) && record.Status != PresetStatus.Missing && File.Exists(record.SourcePath), StringComparer.Ordinal);
+            record => (enabledSources is null || enabledSources.Contains(record.SourceId)) && record.Status != PresetStatus.Missing && (File.Exists(record.SourcePath) || record.Synth == SynthKind.LogicPatch && Directory.Exists(record.SourcePath)), StringComparer.Ordinal);
         foreach (var record in records) record.DuplicateOfId = "";
         int duplicates = 0;
         foreach (var group in records.Where(record => IsMd5(record.ContentMd5)).GroupBy(record =>

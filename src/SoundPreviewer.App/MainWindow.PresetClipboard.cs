@@ -9,7 +9,7 @@ public partial class MainWindow
     private bool _isCopyingPresetPath;
 
     public bool CanLocatePreset => !_isClosing && !_isStorageMaintenance && !_storageRelocated &&
-        Selected is { } row && File.Exists(row.Record.SourcePath);
+        Selected is { } row && (File.Exists(row.Record.SourcePath) || row.Record.Synth == SynthKind.LogicPatch && Directory.Exists(row.Record.SourcePath));
     public string LocatePresetLabel
     {
         get
@@ -26,7 +26,7 @@ public partial class MainWindow
     private static ProcessStartInfo PrepareSourceReveal(string path, bool windows)
     {
         string fullPath = Path.GetFullPath(path);
-        if (!File.Exists(fullPath)) throw new FileNotFoundException("原音色或音色库文件已不存在。", fullPath);
+        if (!File.Exists(fullPath) && !(fullPath.EndsWith(".patch", StringComparison.OrdinalIgnoreCase) && Directory.Exists(fullPath))) throw new FileNotFoundException("原音色或音色库文件已不存在。", fullPath);
         var start = new ProcessStartInfo(windows ? "explorer.exe" : "/usr/bin/open") { UseShellExecute = false };
         start.ArgumentList.Add(windows ? "/select," : "-R");
         start.ArgumentList.Add(fullPath);
@@ -47,9 +47,9 @@ public partial class MainWindow
                 return "无法确认原文件的完整本地路径，请重新扫描。";
             string fullPath = Path.GetFullPath(preset.SourcePath);
             string extension = Path.GetExtension(fullPath).ToLowerInvariant();
-            if (extension is not (".vital" or ".vitalbank" or ".fxp" or ".fxb" or ".serumpreset" or ".spf" or ".spf2" or ".sbf" or ".swzip"))
+            if (extension is not (".patch" or ".vital" or ".vitalbank" or ".fxp" or ".fxb" or ".serumpreset" or ".spf" or ".spf2" or ".sbf" or ".swzip"))
                 return "此项不是已识别的音色或音色库文件，无法复制文件地址。";
-            return File.Exists(fullPath) ? "" : "找不到原音色或音色库文件，请先恢复来源位置或重新扫描。";
+            return (File.Exists(fullPath) || extension == ".patch" && Directory.Exists(fullPath)) ? "" : "找不到原音色或音色库文件，请先恢复来源位置或重新扫描。";
         }
         catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
         {

@@ -13,6 +13,8 @@ public static class RenderReadinessService
         foreach (var configuration in configurations)
         {
             if (!Enum.IsDefined(configuration.Backend)) throw new ArgumentException("未知的渲染方式，请重新选择。");
+            if (configuration.Backend == RenderBackend.LogicPatch && configuration.Synth != SynthKind.LogicPatch)
+                throw new ArgumentException("Logic Patch 后端只能用于 .patch 包。");
             if (configuration.Backend == RenderBackend.Unconfigured) continue;
             if (configuration.TimeoutSeconds is < 5 or > 3600) throw new ArgumentException("超时须为 5 到 3600 秒。");
             if (configuration.Backend == RenderBackend.VitalCli && configuration.Synth != SynthKind.Vital)
@@ -46,6 +48,16 @@ public static class RenderReadinessService
 
         if (!Enum.IsDefined(configuration.Synth) || configuration.Synth == SynthKind.Unknown)
             return Result("未识别", "尚不能确认目标音源，不能依据文件名启动渲染。");
+        if (configuration.Synth == SynthKind.LogicPatch || configuration.Backend == RenderBackend.LogicPatch)
+        {
+            if (configuration.Synth != SynthKind.LogicPatch || configuration.Backend is not (RenderBackend.Unconfigured or RenderBackend.LogicPatch))
+                return Result("格式未适配", "Logic Patch 仅支持 Logic Patch AU 链后端。");
+            if (!mac) return Result("平台不兼容", "Logic .patch 音频生成需要 macOS 13 或更高版本。");
+            if (configuration.Backend == RenderBackend.Unconfigured || !File.Exists(configuration.ExecutablePath) || !File.Exists(configuration.PluginPath))
+                return Result("环境未准备", "请点击“准备 Logic Patch 环境”，需要 Python 3.10+ 和 Xcode Command Line Tools。");
+            return Result("AU 链可尝试", "逐个 .patch 核对所需 AU 及保存状态；不保证等同 Logic 完整通道条。" +
+                (configuration.AllowLogicPatchApproximation ? " 已允许省略未解释的通道元数据，结果须试听确认。" : " 未解释的通道设置将拒绝渲染，可明确勾选 AU 链近似。"), true);
+        }
         var matching = discovered.Where(plugin => configuration.Backend == RenderBackend.VitalCli && plugin.Format == PluginBinaryFormat.Standalone
             ? SamePath(plugin.FilePath, configuration.ExecutablePath) || SamePath(plugin.BinaryPath, configuration.ExecutablePath)
             : SamePath(plugin.FilePath, configuration.PluginPath) || SamePath(plugin.BinaryPath, configuration.PluginPath));

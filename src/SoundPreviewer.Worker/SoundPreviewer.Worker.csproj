@@ -12,5 +12,10 @@
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="..\..\scripts\renderers\serum2_state.py" Link="Renderers\serum2_state.py"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="../../scripts/logic_patch_desktop.py;../../scripts/logic_patch_preview.py;../../scripts/logic_patch_inspector.py;../../scripts/logic_patch_batch.py;../../scripts/Setup-LogicPreview.sh"
+             Link="Renderers/LogicPatch/scripts/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="../SoundPreviewer.LogicPreview/main.swift" Link="Renderers/LogicPatch/src/SoundPreviewer.LogicPreview/main.swift"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 </Project>

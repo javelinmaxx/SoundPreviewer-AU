@@ -22,6 +22,7 @@ public sealed class BackendLabelConverter : IValueConverter
     {
         RenderBackend.Unconfigured => "未选择生成方式", RenderBackend.VitalCli => "Vital 原生",
         RenderBackend.ExternalWorker => "外部工作进程", RenderBackend.DawDreamer => "DawDreamer",
+        RenderBackend.LogicPatch => "Logic Patch AU 链",
         RenderBackend.Sushi => "Sushi（本地研究）", _ => ""
     };
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();

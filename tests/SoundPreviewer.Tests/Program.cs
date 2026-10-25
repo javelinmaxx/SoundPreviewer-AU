@@ -31,6 +31,8 @@ internal static partial class Program
         if (args.Length == 2 && args[0] == "--resource-probe-child") return await ResourceProbeChildAsync(args[1], leaf: false);
         if (args.Length == 2 && args[0] == "--resource-probe-leaf") return await ResourceProbeChildAsync(args[1], leaf: true);
 
+        if (args.Length == 4 && args[0] == "--logic-desktop-native-test") return await TestLogicPatchNativeAsync(args[1], args[2], args[3]);
+
         int filterIndex = Array.IndexOf(args, "--filter");
         string? filter = null;
         if (filterIndex >= 0)
@@ -62,6 +64,8 @@ internal static partial class Program
             ("Installation-local editable directory JSON preserves identities and refuses conflicting edits", TestDirectoryConfigurationAsync),
             ("Upgrade caches, WAL-safe backups, schema refusal and persistent category rules", TestUpgradeCacheCompatibilityAsync),
             ("Preview cleanup and directory migration preserve user metadata and sources", TestPreviewStorageAsync),
+            ("Logic Patch packages index recursively and preserve source identity", TestLogicPatchIndexAsync),
+            ("Logic Patch settings, readiness and cache policy", TestLogicPatchConfigurationAsync),
             ("Audio Unit bundles, safe discovery and VST association", TestAudioUnitDiscoveryAsync),
             ("macOS bundles, Mach-O architectures and safe platform selection", TestMacPluginDiscoveryAsync),
             ("Installed Vital and Serum 2 metadata retain native standalone selection", TestShippingMacPluginDiscoveryAsync),
@@ -917,7 +921,7 @@ internal static partial class Program
         var settings = JsonSerializer.Deserialize<AppSettings>("{\"Sources\":[{\"Id\":\"legacy\",\"Path\":\"C:\\\\Old\\\\Presets\",\"Synth\":1,\"Enabled\":true}]}", LibraryJson.Options)!;
         True(!settings.Sources.Single().AutoDetect && settings.Sources.Single().Synth == SynthKind.Serum1,
             "Legacy serialized source retains explicit synth mode.");
-        Equal(5, settings.Plugins.Count, "Supported synthesizers include Spire while Unknown has no render plugin configuration.");
+        Equal(6, settings.Plugins.Count, "Supported synthesizers include Logic Patch and Spire while Unknown has no render plugin configuration.");
         True(settings.Plugins.All(plugin => plugin.Synth != SynthKind.Unknown), "Only actual synthesizers have default plugin settings.");
         True(settings.PluginDirectories.Count == 0 && settings.DiscoveredPlugins.Count == 0, "Legacy settings default to an empty shared plugin inventory.");
         var record = JsonSerializer.Deserialize<PresetRecord>("{\"Id\":\"old\",\"Synth\":3,\"Status\":2,\"Favorite\":true}", LibraryJson.Options)!;
@@ -1219,6 +1223,11 @@ internal static partial class Program
         await ThrowsAsync<TimeoutException>(() => ProcessRunner.RunAsync(TestExecutable, ["--test-process", "wait"], _fixtureRoot, TimeSpan.FromMilliseconds(150)));
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
         await ThrowsAsync<OperationCanceledException>(() => ProcessRunner.RunAsync(TestExecutable, ["--test-process", "wait"], _fixtureRoot, TimeSpan.FromSeconds(10), cancellation.Token));
+        var nested = await ProcessRunner.RunAsync(TestExecutable, ["--test-process", "flood"], _fixtureRoot,
+            TimeSpan.FromSeconds(10), inheritProcessGroup: true);
+        Equal(17, nested.ExitCode, "A nested bridge can inherit its existing worker group without losing exit or pipe handling.");
+        await ThrowsAsync<TimeoutException>(() => ProcessRunner.RunAsync(TestExecutable, ["--test-process", "wait"],
+            _fixtureRoot, TimeSpan.FromMilliseconds(150), inheritProcessGroup: true));
         string[] keys = ["SP_TEST_ENV_INHERIT", "SP_TEST_ENV_OVERRIDE", "SP_TEST_ENV_REMOVE", "SP_TEST_ENV_ADD"];
         var previous = keys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
         try
@@ -1460,8 +1469,8 @@ internal static partial class Program
             new DiscoveredPlugin { Synth = SynthKind.Serum1, FilePath = serumVst3, BinaryPath = serumVst3, Version = "TEST ONLY 1", Architecture = PluginArchitecture.X64, Format = PluginBinaryFormat.Vst3 }
         };
         var absent = EvaluateWindowsReadiness(new AppSettings { Plugins = [], DiscoveredPlugins = discovery.ToList() });
-        Equal(5, absent.Count, "Readiness reports all supported synths even when old settings omit their configurations.");
-        True(absent.Select(p => p.Synth).ToHashSet().SetEquals(new[] { SynthKind.Vital, SynthKind.Serum1, SynthKind.Serum2, SynthKind.Sylenth1, SynthKind.Spire }), "Readiness inventory cannot omit a supported synth or invent an unknown render target.");
+        Equal(6, absent.Count, "Readiness reports all supported synths even when old settings omit their configurations.");
+        True(absent.Select(p => p.Synth).ToHashSet().SetEquals(new[] { SynthKind.Vital, SynthKind.Serum1, SynthKind.Serum2, SynthKind.Sylenth1, SynthKind.Spire, SynthKind.LogicPatch }), "Readiness inventory cannot omit a supported synth or invent an unknown render target.");
         True(absent.All(p => !p.CanAttemptRender && !p.IsVerified && !string.IsNullOrWhiteSpace(p.Status) && !string.IsNullOrWhiteSpace(p.Detail)), "Missing configuration is actionable and cannot be presented as successful verification.");
 
         var sylenth = new PluginConfiguration { Synth = SynthKind.Sylenth1, PluginPath = sylenth32, Version = "TEST ONLY 2" };
@@ -2174,7 +2183,12 @@ internal static partial class Program
         if (mode == "wait") { await Task.Delay(TimeSpan.FromSeconds(30)); return 0; }
         if (mode == "environment")
         {
-            string[] keys = ["SP_TEST_ENV_INHERIT", "SP_TEST_ENV_OVERRIDE", "SP_TEST_ENV_REMOVE", "SP_TEST_ENV_ADD"];
+            var nested = await ProcessRunner.RunAsync(TestExecutable, ["--test-process", "flood"], _fixtureRoot,
+            TimeSpan.FromSeconds(10), inheritProcessGroup: true);
+        Equal(17, nested.ExitCode, "A nested bridge can inherit its existing worker group without losing exit or pipe handling.");
+        await ThrowsAsync<TimeoutException>(() => ProcessRunner.RunAsync(TestExecutable, ["--test-process", "wait"],
+            _fixtureRoot, TimeSpan.FromMilliseconds(150), inheritProcessGroup: true));
+        string[] keys = ["SP_TEST_ENV_INHERIT", "SP_TEST_ENV_OVERRIDE", "SP_TEST_ENV_REMOVE", "SP_TEST_ENV_ADD"];
             Console.Out.Write(JsonSerializer.Serialize(keys.ToDictionary(key => key, Environment.GetEnvironmentVariable)));
             return 0;
         }

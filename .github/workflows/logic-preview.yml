@@ -51,6 +51,23 @@ jobs:
         run: |
           dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --filter "Audio Unit bundles"
           dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --filter "macOS bundles"
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Verify actual desktop Logic Patch rendering with Apple AUs
+        shell: bash
+        run: |
+          export SOUNDPREVIEWER_PYTHON="$(command -v python3)"
+          support="$PWD/src/SoundPreviewer.App/bin/Release/net8.0/Renderers/LogicPatch"
+          export SOUNDPREVIEWER_LOGIC_BUILD_DIR="$PWD/artifacts/logic-desktop-native"
+          bash "$support/scripts/Setup-LogicPreview.sh"
+          "$SOUNDPREVIEWER_LOGIC_BUILD_DIR/LogicPreview" --self-test-export "$PWD/artifacts/logic-desktop-export"
+          python3 tests/scripts/create_logic_desktop_fixture.py artifacts/logic-desktop-export
+          dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --logic-desktop-native-test \
+            "$PWD/artifacts/logic-desktop-export/TEST ONLY desktop.patch" \
+            "$SOUNDPREVIEWER_LOGIC_BUILD_DIR/LogicPreview" "$support/scripts/logic_patch_desktop.py"
+      - name: Verify desktop package indexing and configuration
+        run: dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --filter "Logic Patch"
       - name: Verify an actual software-rendered desktop window
         shell: bash
         run: |

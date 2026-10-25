@@ -118,7 +118,8 @@ public sealed class ScanService
                         warnings.Add($"已跳过目录链接，保留已有记录：{directory}");
                         continue;
                     }
-                    foreach (string path in Directory.EnumerateFileSystemEntries(directory))
+                    foreach (string path in directory.EndsWith(".patch", StringComparison.OrdinalIgnoreCase)
+                        ? new[] { directory } : Directory.EnumerateFileSystemEntries(directory))
                     {
                         token.ThrowIfCancellationRequested();
                         FileAttributes attributes;
@@ -135,7 +136,7 @@ public sealed class ScanService
                             warnings.Add($"已跳过文件或目录链接，保留已有记录：{path}");
                             continue;
                         }
-                        if ((attributes & FileAttributes.Directory) != 0)
+                        if ((attributes & FileAttributes.Directory) != 0 && !path.EndsWith(".patch", StringComparison.OrdinalIgnoreCase))
                         {
                             directories.Push(path);
                             continue;
@@ -256,6 +257,8 @@ public sealed class ScanService
     private static bool Supports(SynthKind synth, string extension)
     {
         if (synth == SynthKind.Unknown) return false;
+        if (synth == SynthKind.LogicPatch) return extension.Equals(".patch", StringComparison.OrdinalIgnoreCase);
+        if (extension.Equals(".patch", StringComparison.OrdinalIgnoreCase)) return false;
         if (synth == SynthKind.Vital) return extension.Equals(".vital", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase);
         if (synth == SynthKind.Spire && PresetDetection.IsSpireFormat(extension)) return true;
         if (extension.Equals(".fxp", StringComparison.OrdinalIgnoreCase)) return true;
@@ -265,6 +268,25 @@ public sealed class ScanService
 
     private static List<PresetRecord> ReadPresets(SourceFolder source, string root, string path, CancellationToken token, List<string> warnings)
     {
+        if (path.EndsWith(".patch", StringComparison.OrdinalIgnoreCase))
+        {
+            var patchDetection = new SynthDetection(SynthKind.LogicPatch, "依据 Logic .patch 包识别；实际 AU 链兼容性将在渲染时检查。");
+            if (!Directory.Exists(path))
+            {
+                var invalid = CreateRecord(source, patchDetection, path, Path.GetFileNameWithoutExtension(path), Path.GetFileName(root),
+                    Fingerprints.HashFile(path, token), "", new FileInfo(path).Length, File.GetLastWriteTimeUtc(path));
+                invalid.Status = PresetStatus.Unsupported;
+                invalid.Message = "Logic .patch 必须是包目录，不能是平面文件。";
+                return [invalid];
+            }
+            var snapshot = LogicPatchSource.Read(path, token);
+            string packageName = Path.GetDirectoryName(Path.GetRelativePath(root, path)) ?? "";
+            var patch = CreateRecord(source, patchDetection, path, Path.GetFileNameWithoutExtension(path),
+                string.IsNullOrEmpty(packageName) || packageName == "." ? Path.GetFileName(root) : packageName,
+                snapshot.Sha256, snapshot.Md5, snapshot.Bytes, snapshot.ModifiedUtc);
+            patch.Message = "Logic AU 链预览；需要 macOS、已安装的 AU 与 Logic Patch 生成环境。";
+            return [patch];
+        }
         var file = new FileInfo(path);
         long fileSize = file.Length;
         if (file.Extension.Equals(".vitalbank", StringComparison.OrdinalIgnoreCase) && fileSize > VitalBankPresetSource.MaximumBankBytes)

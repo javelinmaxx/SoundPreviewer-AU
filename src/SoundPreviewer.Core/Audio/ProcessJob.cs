@@ -45,13 +45,13 @@ internal sealed class ProcessJob : IDisposable
         return marker;
     }
 
-    public ProcessJob(Process process, string? processGroupFile = null)
+    public ProcessJob(Process process, string? processGroupFile = null, bool inheritProcessGroup = false)
     {
         this.process = process;
         this.processGroupFile = processGroupFile;
         if (!OperatingSystem.IsWindows())
         {
-            if (OperatingSystem.IsMacOS()) ReadProcessGroup();
+            if (OperatingSystem.IsMacOS() && !inheritProcessGroup) ReadProcessGroup();
             return;
         }
         handle = CreateJobObject(IntPtr.Zero, null);

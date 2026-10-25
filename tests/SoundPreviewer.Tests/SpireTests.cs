@@ -16,13 +16,13 @@ internal static partial class Program
             {"Synth":1,"Version":"legacy-serum"},{"Synth":2},{"Synth":3}],
             "Sources":[{"Synth":4,"AutoDetect":true,"Path":"mixed-root"}]}
             """, LibraryJson.Options)!;
-        Equal(5, settings.Plugins.Count, "Existing saved plugin lists gain the missing Spire configuration.");
+        Equal(6, settings.Plugins.Count, "Existing saved plugin lists gain the missing Spire configuration.");
         Equal("legacy-vital", settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Vital).ExecutablePath, "Migration preserves existing executable settings.");
         Equal("legacy-serum", settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Serum1).Version, "Migration preserves plugin metadata.");
         Equal(RenderBackend.Unconfigured, settings.Plugins.Single(plugin => plugin.Synth == SynthKind.Spire).Backend, "Migration never implies an installed or verified Spire adapter.");
         Equal(SynthKind.Unknown, settings.Sources.Single().Synth, "Existing mixed roots remain unidentified.");
         var copy = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings, LibraryJson.Options), LibraryJson.Options)!;
-        Equal(5, copy.Plugins.Count, "Repeated loading does not duplicate the appended configuration.");
+        Equal(6, copy.Plugins.Count, "Repeated loading does not duplicate the appended configuration.");
 
         string directory = Fixture("spire-foundation");
         string spireFolder = Path.Combine(directory, "Spire");
@@ -88,6 +88,6 @@ internal static partial class Program
         store.UpsertMany([manual, new PresetRecord { Id = "legacy-unknown", Synth = SynthKind.Unknown, Status = PresetStatus.Unidentified }]);
         Equal(SynthKind.Spire, store.LoadPresets().Single(preset => preset.Id == originalId).Synth, "Spire round trips through the existing SQLite schema.");
         Equal(SynthKind.Unknown, store.LoadPresets().Single(preset => preset.Id == "legacy-unknown").Synth, "Stored Unknown=4 does not collide with Spire=5.");
-        Equal(5, store.LoadSettings().Plugins.Count, "Migrated configuration survives settings persistence.");
+        Equal(6, store.LoadSettings().Plugins.Count, "Migrated configuration survives settings persistence.");
     }
 }

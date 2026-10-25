@@ -284,10 +284,11 @@ func writeState(_ unit: AVAudioUnit, component: Component, name: String, directo
     return Plugin(component: component, stateFile: name, stateSHA256: sha256(data))
 }
 
-func selfTest() throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent("soundpreviewer-au-test-\(UUID().uuidString)")
+func selfTest(exportDirectory: URL? = nil) throws {
+    let root = exportDirectory ?? FileManager.default.temporaryDirectory.appendingPathComponent("soundpreviewer-au-test-\(UUID().uuidString)")
+    guard !FileManager.default.fileExists(atPath: root.path) else { throw PreviewError("Self-test export directory already exists.") }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: root) }
+    defer { if exportDirectory == nil { try? FileManager.default.removeItem(at: root) } }
     let synthComponent = Component(type: "aumu", subtype: "samp", manufacturer: "appl")
     let filterComponent = Component(type: "aufx", subtype: "lpas", manufacturer: "appl")
     // Use a private generated sample, avoiding reliance on an installed DLS
@@ -340,7 +341,9 @@ func selfTest() throws {
 
 do {
     let args = Array(CommandLine.arguments.dropFirst())
-    if args == ["--self-test"] {
+    if args.count == 2 && args[0] == "--self-test-export" {
+        try selfTest(exportDirectory: URL(fileURLWithPath: args[1], isDirectory: true))
+    } else if args == ["--self-test"] {
         try selfTest()
     } else {
         guard args.count == 2, args[0] == "--request" else { throw PreviewError("Usage: LogicPreview --request manifest.json | --self-test") }

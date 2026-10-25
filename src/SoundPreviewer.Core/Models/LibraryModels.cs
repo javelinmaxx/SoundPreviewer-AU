@@ -5,9 +5,9 @@ using System.Text.Json.Serialization;
 
 namespace SoundPreviewer.Core.Models;
 
-public enum SynthKind { Vital, Serum1, Serum2, Sylenth1, Unknown = 4, Spire = 5 }
+public enum SynthKind { Vital, Serum1, Serum2, Sylenth1, Unknown = 4, Spire = 5, LogicPatch = 6 }
 public enum PresetStatus { Pending, Rendering, Ready, Failed, NeedsReview, Unsupported, Missing, Unidentified = 7 }
-public enum RenderBackend { Unconfigured, VitalCli, ExternalWorker, DawDreamer, Sushi = 4 }
+public enum RenderBackend { Unconfigured, VitalCli, ExternalWorker, DawDreamer, Sushi = 4, LogicPatch = 5 }
 public enum PreviewNoteOrder { LowMiddleHigh = 0, MiddleHighLow = 1 }
 public enum PreviewAudioFormat { Aac = 0, Wav = 1 }
 
@@ -85,6 +85,9 @@ public sealed class PluginConfiguration
     public string InitBaselinePath { get; set; } = "";
     public int TimeoutSeconds { get; set; } = 120;
     public bool AllowParallelRendering { get; set; } = true;
+    public bool AllowLogicPatchApproximation { get; set; }
+    [JsonIgnore]
+    public bool IsLogicPatch => Synth == SynthKind.LogicPatch;
 }
 
 public sealed class PreviewTemplate : IJsonOnDeserialized
@@ -258,6 +261,12 @@ public static class Fingerprints
     public static string RendererExecutableHash(PluginConfiguration plugin, CancellationToken cancellationToken = default)
     {
         string executable = HashFile(plugin.ExecutablePath, cancellationToken);
+        if (plugin.Backend == RenderBackend.LogicPatch)
+            return HashText(JsonSerializer.Serialize(new { Executable = executable,
+                Bridge = HashFile(plugin.PluginPath, cancellationToken),
+                Inspector = HashFile(Path.Combine(Path.GetDirectoryName(plugin.PluginPath)!, "logic_patch_inspector.py"), cancellationToken),
+                Preview = HashFile(Path.Combine(Path.GetDirectoryName(plugin.PluginPath)!, "logic_patch_preview.py"), cancellationToken),
+                plugin.AllowLogicPatchApproximation }));
         if (plugin.Backend == RenderBackend.DawDreamer && Services.DawDreamerRuntimeService.TryGetRuntime(plugin.ExecutablePath, out var runtime))
             return Services.DawDreamerRuntimeService.Fingerprint(runtime!, cancellationToken);
         if (plugin.Backend != RenderBackend.Sushi) return executable;
