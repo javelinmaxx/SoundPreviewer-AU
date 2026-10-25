@@ -51,6 +51,10 @@ def block(payload, slot=2, role=8, direct=False, offset=208):
             for key, address in (("manufacturer", 168), ("type", 172), ("subtype", 176)):
                 if key in value:
                     struct.pack_into("<I", prefix, address, value[key])
+    if payload.startswith(b"bplist00"):
+        # Named AU wrappers, like direct wrappers, declare the binary plist
+        # length immediately before its payload. Native fullState is binary.
+        struct.pack_into("<I", prefix, len(prefix) - 4, len(payload))
     data = prefix + payload
     struct.pack_into("<I", data, 28, len(data) - 36)
     return bytes(data)

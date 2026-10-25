@@ -41,6 +41,13 @@ class DesktopBridgeTests(unittest.TestCase):
         self.assertEqual("logic-au-chain-desktop-v1", result["AdapterVersion"])
         self.assertTrue(self.fixture.output.is_file())
 
+    def test_named_binary_native_style_states_are_readable(self):
+        from test_logic_patch_inspector import au_state
+        self.fixture.write([block(plistlib.dumps(au_state(), fmt=plistlib.FMT_BINARY)),
+                            block(plistlib.dumps(au_state("aufx", "Fx01"), fmt=plistlib.FMT_BINARY), slot=3, role=0)])
+        self.request["Preset"]["ContentHash"] = desktop.package_identity(self.fixture.root)
+        self.assertTrue(self.render()["Success"])
+
     def test_changed_source_and_mismatched_backend_never_render(self):
         original = copy.deepcopy(self.request)
         for key, value in (("IsInitializationBaseline", True),):
