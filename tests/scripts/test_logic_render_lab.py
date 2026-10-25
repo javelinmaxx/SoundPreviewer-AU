@@ -257,6 +257,49 @@ class LogicRenderLabTests(unittest.TestCase):
             self.assertEqual(0, lab.main(["inventory"]))
         self.assertIn(str(patch), [item["path"] for item in json.loads(output.getvalue())["patches"]])
 
+    def test_creator_studio_accepts_bundle_metadata_and_executable_paths(self):
+        application = self.make_logic_application(self.root, "Logic Pro Creator Studio.app", bundle="com.apple.mobilelogic")
+        executable = application / "Contents/MacOS/Logic Pro"
+        executable.parent.mkdir()
+        executable.write_bytes(b"TEST ONLY placeholder, never executed")
+        for selected in (application, application / "Contents/Info.plist", application / "Contents", executable):
+            with self.subTest(selected=selected):
+                found, info = lab.find_logic_application(selected)
+                self.assertEqual(application, found)
+                self.assertEqual("com.apple.mobilelogic", info["CFBundleIdentifier"])
+
+    def test_creator_studio_is_discovered_in_application_folder(self):
+        application = self.make_logic_application(self.root, "Logic Pro Creator Studio.app", bundle="com.apple.mobilelogic")
+        self.assertEqual(application, lab.find_logic_application(search_roots=[self.root])[0])
+
+    def test_spotlight_search_includes_creator_studio(self):
+        application = self.make_logic_application(self.root, "Logic Pro Creator Studio.app", bundle="com.apple.mobilelogic")
+        outcome = SimpleNamespace(returncode=0, stdout=str(application).encode() + b"\0", stderr=b"")
+        with mock.patch.object(lab.subprocess, "run", return_value=outcome) as run:
+            self.assertEqual(application, lab.find_logic_application(search_roots=[])[0])
+        self.assertIn('kMDItemCFBundleIdentifier == "com.apple.mobilelogic"', run.call_args.args[0][2])
+        self.assertIn('kMDItemCFBundleIdentifier == "com.apple.logic10"', run.call_args.args[0][2])
+
+    def test_creator_studio_probe_targets_detected_process_identity(self):
+        application = self.make_logic_application(self.root, "Logic Pro Creator Studio.app", bundle="com.apple.mobilelogic")
+        # A missing dictionary is valid evidence; it must not stop read-only UI discovery.
+        definition = SimpleNamespace(returncode=1, stdout=b"", stderr=b"TEST ONLY no scripting dictionary")
+        ui = SimpleNamespace(returncode=0, stdout='{"running": true}', stderr="")
+        with mock.patch.object(lab.sys, "platform", "darwin"), mock.patch.object(lab.subprocess, "run", side_effect=[definition, ui]) as run:
+            report = lab.probe(application / "Contents/Info.plist", accessibility=True)
+        self.assertEqual(str(application), report["application"])
+        self.assertEqual("com.apple.mobilelogic", report["bundle_id"])
+        self.assertEqual(1, report["sdef_exit_code"])
+        self.assertTrue(report["accessibility"]["running"])
+        self.assertEqual(["/usr/bin/sdef", str(application)], run.call_args_list[0].args[0])
+        self.assertEqual("com.apple.mobilelogic", run.call_args_list[1].args[0][-1])
+        self.assertFalse(report["logic_launched"])
+
+    def test_unrelated_app_with_logic_filename_remains_rejected(self):
+        application = self.make_logic_application(self.root, "Logic Pro Creator Studio.app", bundle="org.test.not-logic")
+        with self.assertRaisesRegex(ValueError, "No readable Logic Pro app bundle"):
+            lab.find_logic_application(application / "Contents/Info.plist")
+
     def test_cli_prepare_runs_without_logic_and_reports_errors(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(0, lab.main(["prepare", "--workspace", str(self.workspace), "--name", "TEST ONLY"]))

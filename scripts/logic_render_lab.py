@@ -30,6 +30,8 @@ PROJECT = Path(__file__).resolve().parent.parent
 MAX_BYTES = 256 * 1024 * 1024
 PPQ = 960
 TARGET = "12.0"
+# Legacy Mac distribution and Creator Studio (confirmed from the user's 12.0 app).
+LOGIC_BUNDLE_IDS = ("com.apple.logic10", "com.apple.mobilelogic")
 
 
 def digest(path: Path) -> str:
@@ -291,6 +293,18 @@ def collect(workspace: Path, bounce: Path, confirmed_patch: str):
     return result
 
 
+def normalize_logic_application(application: Path):
+    application = application.expanduser().absolute()
+    # Finder can select the bundle metadata or executable instead of the .app.
+    if application.name == "Info.plist" and application.parent.name == "Contents":
+        application = application.parent.parent
+    elif application.parent.name == "MacOS" and application.parent.parent.name == "Contents":
+        application = application.parents[2]
+    elif application.name == "Contents":
+        application = application.parent
+    return application
+
+
 def logic_application_info(application: Path):
     try:
         metadata = application / "Contents/Info.plist"
@@ -298,7 +312,7 @@ def logic_application_info(application: Path):
             return None
         with metadata.open("rb") as source:
             info = plistlib.load(source)
-        return info if isinstance(info, dict) and info.get("CFBundleIdentifier") == "com.apple.logic10" else None
+        return info if isinstance(info, dict) and info.get("CFBundleIdentifier") in LOGIC_BUNDLE_IDS else None
     except (OSError, ValueError, ExpatError, plistlib.InvalidFileException):
         return None
 
@@ -307,7 +321,7 @@ def find_logic_application(application: Path | None = None, search_roots=None):
     """Find renamed/moved installations by identity, without starting the app."""
     hint = 'Locate Logic in Finder and pass --application "/actual/path/Logic Pro.app".'
     if application is not None:
-        application = application.expanduser().absolute()
+        application = normalize_logic_application(application)
         info = logic_application_info(application)
         if info is None:
             raise ValueError(f"No readable Logic Pro app bundle at {str(application)!r}. {hint}")
@@ -323,7 +337,7 @@ def find_logic_application(application: Path | None = None, search_roots=None):
     def valid(paths):
         matches = {}
         for path in paths:
-            path = path.expanduser().absolute()
+            path = normalize_logic_application(path)
             info = logic_application_info(path)
             if info is not None:
                 matches[str(path.resolve())] = (path, info)
@@ -334,7 +348,8 @@ def find_logic_application(application: Path | None = None, search_roots=None):
         # Spotlight covers custom folders and volumes. A disabled/stale index
         # is not evidence that Logic is uninstalled; retain an explicit override.
         try:
-            outcome = subprocess.run(["/usr/bin/mdfind", "-0", 'kMDItemCFBundleIdentifier == "com.apple.logic10"'],
+            query = " || ".join(f'kMDItemCFBundleIdentifier == "{identifier}"' for identifier in LOGIC_BUNDLE_IDS)
+            outcome = subprocess.run(["/usr/bin/mdfind", "-0", query],
                                      capture_output=True, timeout=15)
             if outcome.returncode == 0 and len(outcome.stdout) <= 1024 * 1024:
                 matches = valid(Path(os.fsdecode(path)) for path in outcome.stdout.split(b"\0") if path)
@@ -370,7 +385,7 @@ def probe(application: Path | None = None, accessibility=False):
         report["sdef_diagnostic"] = definition.stderr.decode(errors="replace")[-3000:]
     if accessibility:
         script = Path(__file__).with_name("logic_render_probe.js")
-        outcome = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", str(script)],
+        outcome = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", str(script), info["CFBundleIdentifier"]],
                                  capture_output=True, text=True, timeout=30)
         report["accessibility_exit_code"] = outcome.returncode
         report["accessibility"] = json.loads(outcome.stdout) if outcome.returncode == 0 else {"error": outcome.stderr[-3000:]}

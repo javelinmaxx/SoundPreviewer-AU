@@ -1,7 +1,11 @@
 // Read-only JXA probe. Does not launch Logic, activate windows, type or click.
-function run() {
+function run(argv) {
+    if (argv.length !== 1 || !argv[0]) {
+        throw new Error("Pass the bundle identifier read from the selected Logic installation.");
+    }
+    const bundleIdentifier = argv[0];
     const events = Application("System Events");
-    const matches = events.applicationProcesses.whose({bundleIdentifier: "com.apple.logic10"})();
+    const matches = events.applicationProcesses.whose({bundleIdentifier: bundleIdentifier})();
     if (matches.length === 0) {
         return JSON.stringify({running: false, message: "Open a dedicated Logic test project manually, then repeat the probe."});
     }
