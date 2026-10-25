@@ -193,6 +193,70 @@ class LogicRenderLabTests(unittest.TestCase):
         self.assertEqual(["/usr/bin/sdef", str(application)], run.call_args.args[0])
         self.assertEqual(1, run.call_count)
 
+    def make_logic_application(self, parent, name="Logic Pro X.app", version="12.0", bundle="com.apple.logic10"):
+        application = parent / name
+        (application / "Contents").mkdir(parents=True)
+        (application / "Contents/Info.plist").write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": bundle, "CFBundleShortVersionString": version}))
+        return application
+
+    def test_discovers_renamed_logic_by_bundle_identifier_without_launch(self):
+        applications = self.root / "Applications"
+        renamed = self.make_logic_application(applications)
+        self.make_logic_application(applications, "Logic Pro.app", bundle="org.test.not-logic")
+        with mock.patch.object(lab.subprocess, "run") as run:
+            found, info = lab.find_logic_application(search_roots=[applications])
+        self.assertEqual(renamed, found)
+        self.assertEqual("12.0", info["CFBundleShortVersionString"])
+        run.assert_not_called()
+
+    def test_spotlight_finds_moved_app_with_spaces(self):
+        moved = self.make_logic_application(self.root / "Audio tools", "Renamed Logic.app")
+        outcome = SimpleNamespace(returncode=0, stdout=str(moved).encode() + b"\0", stderr=b"")
+        with mock.patch.object(lab.subprocess, "run", return_value=outcome) as run:
+            found, _ = lab.find_logic_application(search_roots=[])
+        self.assertEqual(moved, found)
+        self.assertEqual("/usr/bin/mdfind", run.call_args.args[0][0])
+        self.assertEqual(1, run.call_count)
+
+    def test_discovery_prefers_target_and_reports_ambiguous_installations(self):
+        applications = self.root / "Applications"
+        self.make_logic_application(applications, "Old Logic.app", version="11.0")
+        current = self.make_logic_application(applications, "Logic 12.app", version="12.0.1")
+        self.assertEqual(current, lab.find_logic_application(search_roots=[applications])[0])
+        self.make_logic_application(applications, "Other Logic 12.app")
+        with self.assertRaisesRegex(ValueError, "Multiple Logic installations.*--application"):
+            lab.find_logic_application(search_roots=[applications])
+
+    def test_missing_explicit_path_has_actionable_error_and_never_falls_back(self):
+        with mock.patch.object(lab.subprocess, "run") as run:
+            with self.assertRaisesRegex(ValueError, "No readable Logic Pro app bundle.*--application"):
+                lab.find_logic_application(self.root / "Missing Logic.app")
+        run.assert_not_called()
+
+    def test_failed_or_missing_spotlight_reports_override(self):
+        for response in (OSError("missing mdfind"), SimpleNamespace(returncode=0, stdout=b"", stderr=b"")):
+            with self.subTest(response=response):
+                options = {"side_effect": response} if isinstance(response, Exception) else {"return_value": response}
+                with mock.patch.object(lab.subprocess, "run", **options):
+                    with self.assertRaisesRegex(ValueError, "not found.*--application"):
+                        lab.find_logic_application(search_roots=[])
+
+    def test_malformed_plist_does_not_prevent_discovery_of_valid_app(self):
+        applications = self.root / "Applications"
+        broken = self.make_logic_application(applications, "Broken.app")
+        (broken / "Contents/Info.plist").write_bytes(b"<?xml version='1.0'?><plist><dict>")
+        current = self.make_logic_application(applications, "Actual Logic.app")
+        self.assertEqual(current, lab.find_logic_application(search_roots=[applications])[0])
+
+    def test_inventory_cli_uses_discovered_app_root(self):
+        application = self.make_logic_application(self.root)
+        patch = application / "Contents/Resources/Patches/TEST ONLY.patch"
+        patch.mkdir(parents=True)
+        with mock.patch.object(lab, "find_logic_application", return_value=(application, {})), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(0, lab.main(["inventory"]))
+        self.assertIn(str(patch), [item["path"] for item in json.loads(output.getvalue())["patches"]])
+
     def test_cli_prepare_runs_without_logic_and_reports_errors(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(0, lab.main(["prepare", "--workspace", str(self.workspace), "--name", "TEST ONLY"]))

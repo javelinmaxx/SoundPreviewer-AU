@@ -24,6 +24,7 @@ import tempfile
 import uuid
 import wave
 import xml.etree.ElementTree as ET
+from xml.parsers.expat import ExpatError
 
 PROJECT = Path(__file__).resolve().parent.parent
 MAX_BYTES = 256 * 1024 * 1024
@@ -290,14 +291,69 @@ def collect(workspace: Path, bounce: Path, confirmed_patch: str):
     return result
 
 
-def probe(application: Path, accessibility=False):
+def logic_application_info(application: Path):
+    try:
+        metadata = application / "Contents/Info.plist"
+        if metadata.stat().st_size > 4 * 1024 * 1024:
+            return None
+        with metadata.open("rb") as source:
+            info = plistlib.load(source)
+        return info if isinstance(info, dict) and info.get("CFBundleIdentifier") == "com.apple.logic10" else None
+    except (OSError, ValueError, ExpatError, plistlib.InvalidFileException):
+        return None
+
+
+def find_logic_application(application: Path | None = None, search_roots=None):
+    """Find renamed/moved installations by identity, without starting the app."""
+    hint = 'Locate Logic in Finder and pass --application "/actual/path/Logic Pro.app".'
+    if application is not None:
+        application = application.expanduser().absolute()
+        info = logic_application_info(application)
+        if info is None:
+            raise ValueError(f"No readable Logic Pro app bundle at {str(application)!r}. {hint}")
+        return application, info
+    roots = search_roots if search_roots is not None else [Path("/Applications"), Path.home() / "Applications"]
+    candidates = []
+    for root in roots:
+        try:
+            candidates.extend(path for path in root.iterdir() if path.suffix.lower() == ".app")
+        except OSError:
+            continue
+
+    def valid(paths):
+        matches = {}
+        for path in paths:
+            path = path.expanduser().absolute()
+            info = logic_application_info(path)
+            if info is not None:
+                matches[str(path.resolve())] = (path, info)
+        return list(matches.values())
+
+    matches = valid(candidates)
+    if not matches:
+        # Spotlight covers custom folders and volumes. A disabled/stale index
+        # is not evidence that Logic is uninstalled; retain an explicit override.
+        try:
+            outcome = subprocess.run(["/usr/bin/mdfind", "-0", 'kMDItemCFBundleIdentifier == "com.apple.logic10"'],
+                                     capture_output=True, timeout=15)
+            if outcome.returncode == 0 and len(outcome.stdout) <= 1024 * 1024:
+                matches = valid(Path(os.fsdecode(path)) for path in outcome.stdout.split(b"\0") if path)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    target_matches = [item for item in matches if str(item[1].get("CFBundleShortVersionString", "")).split(".")[:2] == TARGET.split(".")]
+    choices = target_matches or matches
+    if len(choices) == 1:
+        return choices[0]
+    if choices:
+        raise ValueError("Multiple Logic installations found: " + "; ".join(str(item[0]) for item in choices) + ". " + hint)
+    raise ValueError("Logic Pro was not found in /Applications, ~/Applications or Spotlight. " + hint)
+
+
+def probe(application: Path | None = None, accessibility=False):
     if sys.platform != "darwin":
         raise ValueError("Logic capability probing needs your Mac. Prepare/MIDI tests can run on other systems.")
-    with (application / "Contents/Info.plist").open("rb") as source:
-        info = plistlib.load(source)
-    if info.get("CFBundleIdentifier") != "com.apple.logic10":
-        raise ValueError("Selected application is not Logic Pro.")
-    version = info.get("CFBundleShortVersionString", "unknown")
+    application, info = find_logic_application(application)
+    version = str(info.get("CFBundleShortVersionString") or "unknown")
     report = {"application": str(application), "version": version,
               "target_version_match": version == TARGET or version.startswith(TARGET + "."),
               "target_version": TARGET, "bundle_id": info["CFBundleIdentifier"], "logic_launched": False}
@@ -325,10 +381,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("probe", help="Read Logic version/public dictionary; optional read-only UI inventory")
-    p.add_argument("--application", type=Path, default=Path("/Applications/Logic Pro.app"))
+    p.add_argument("--application", type=Path, help="Logic .app path; default: discover by bundle identifier")
     p.add_argument("--accessibility", action="store_true", help="Read running Logic's UI; macOS may request Automation/Accessibility access")
     p = sub.add_parser("inventory", help="List .patch packages without loading them; the factory catalog may use other locations")
     p.add_argument("--root", type=Path, action="append", help="Repeat for multiple installed patch folders")
+    p.add_argument("--application", type=Path, help="Logic .app path for default patch roots; otherwise auto-discover")
     p = sub.add_parser("prepare", help="Create MIDI and instructions for one manual factory-patch bounce")
     p.add_argument("--name", required=True, help="Exact factory Library patch name")
     p.add_argument("--workspace", type=Path, default=PROJECT / "artifacts/logic-render-lab" / (datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]))
@@ -347,8 +404,11 @@ def main(argv=None):
         if args.command == "probe":
             result = probe(args.application, args.accessibility)
         elif args.command == "inventory":
-            result = inventory(args.root or [Path("/Applications/Logic Pro.app/Contents/Resources/Patches"),
-                                            Path("/Library/Application Support/Logic/Patches")])
+            roots = args.root
+            if not roots:
+                application, _ = find_logic_application(args.application)
+                roots = [application / "Contents/Resources/Patches", Path("/Library/Application Support/Logic/Patches")]
+            result = inventory(roots)
         elif args.command == "prepare":
             result = prepare(args.workspace, args.name, args.template, notes=tuple(int(value) for value in args.notes.split(",")),
                              velocity=args.velocity, bpm=args.bpm, hold=args.hold, tail=args.tail)
