@@ -23,6 +23,46 @@ internal static partial class Program
     private static IReadOnlyList<RenderReadiness> EvaluateWindowsReadiness(AppSettings settings) =>
         RenderReadinessService.Evaluate(settings, PluginPlatform.Windows, PluginArchitecture.X64);
 
+    private static async Task TestAudioUnitDiscoveryAsync()
+    {
+        string directory = Fixture("au-bundle-discovery");
+        // AU factories do not export VSTPluginMain or GetPluginFactory.
+        string au = WriteMacBundle(directory, "Serum.component", "Serum", "com.xferrecords.Serum", "1.36.8",
+            universal: true, binaryPlist: true, badEntry: true);
+        string effect = WriteMacBundle(directory, "SerumFX.component", "SerumFX", "com.xferrecords.SerumFX", "1.0", arm64: true);
+        string broken = WriteMacBundle(directory, "Broken.component", "Broken", "org.test.broken", "1.0");
+        File.WriteAllText(Path.Combine(broken, "Contents", "MacOS", "Broken"), "not a Mach-O binary");
+        string escaped = WriteMacBundle(directory, "Escape.component", "Escape", "org.test.escape", "1.0");
+        File.WriteAllText(Path.Combine(escaped, "Contents", "Info.plist"),
+            "<plist><dict><key>CFBundleExecutable</key><string>../../outside</string></dict></plist>");
+        var result = await new PluginScanService().ScanAsync([directory, au]);
+        Equal(2, result.Plugins.Count, "AU bundles deduplicate overlapping roots and reject corrupt or escaping binaries.");
+        True(result.Plugins.All(plugin => plugin.Format == PluginBinaryFormat.AudioUnit && plugin.Platform == PluginPlatform.MacOS),
+            "AU bundles retain their own format and platform, including effects.");
+        var instrument = result.Plugins.Single(plugin => plugin.FilePath == au);
+        Equal(PluginArchitecture.Universal, instrument.Architecture, "AU discovery checks Intel and ARM slices without requiring VST exports.");
+        Equal(PluginArchitecture.Arm64, result.Plugins.Single(plugin => plugin.FilePath == effect).Architecture, "ARM effect bundles are discoverable.");
+        Equal(instrument.BinaryPath, PluginScanService.ResolveBundleExecutable(au), "AU executable resolution accepts binary plists.");
+        True(result.Warnings.Count >= 2, "Invalid AU packages produce diagnostics while scanning continues.");
+        var restored = JsonSerializer.Deserialize<DiscoveredPlugin>(JsonSerializer.Serialize(instrument, LibraryJson.Options), LibraryJson.Options)!;
+        Equal(PluginBinaryFormat.AudioUnit, restored.Format, "AU format survives settings serialization.");
+        Equal(2, (int)PluginBinaryFormat.Standalone, "Adding AU keeps persisted legacy format values unchanged.");
+        var configuration = new PluginConfiguration { Synth = SynthKind.Serum1 };
+        Equal(0, PluginSelectionService.ApplyAutomatic(result.Plugins, [configuration], platform: PluginPlatform.MacOS,
+            architecture: PluginArchitecture.Arm64), "Discovery alone must not configure an AU as a VST renderer.");
+        Throws<ArgumentException>(() => PluginSelectionService.Assign(configuration, instrument, platform: PluginPlatform.MacOS));
+        Equal("", configuration.PluginPath, "Refusing unsupported AU association preserves configuration.");
+        string vst = WriteMacBundle(directory, "Serum.vst", "Serum", "com.xferrecords.Serum", "1.36.8", universal: true);
+        result = await new PluginScanService().ScanAsync([directory]);
+        Equal(1, PluginSelectionService.ApplyAutomatic(result.Plugins, [configuration], platform: PluginPlatform.MacOS,
+            architecture: PluginArchitecture.Arm64), "An AU installation does not block automatic VST association.");
+        Equal(vst, configuration.PluginPath, "Automatic selection chooses the supported VST bundle.");
+        True(ApplicationPaths.AudioUnitDirectories.Count == 2 && ApplicationPaths.AudioUnitDirectories.All(path =>
+            path.EndsWith("Audio/Plug-Ins/Components", StringComparison.Ordinal)), "Both system and user AU locations are provided.");
+        if (OperatingSystem.IsMacOS()) True(ApplicationPaths.AudioUnitDirectories.All(ApplicationPaths.DefaultPluginDirectories.Contains),
+            "New Mac installations include both AU roots by default.");
+    }
+
     private static async Task TestMacPluginDiscoveryAsync()
     {
         string directory = Fixture("mac-plugin-discovery");

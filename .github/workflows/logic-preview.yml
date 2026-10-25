@@ -47,6 +47,10 @@ jobs:
           dotnet restore SoundPreviewer.sln --configfile NuGet.Config
           dotnet build SoundPreviewer.sln -c Release --no-restore
           dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --create-ui-fixture artifacts/mac-software-ui
+      - name: Verify AU discovery and existing Mac plugin selection
+        run: |
+          dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --filter "Audio Unit bundles"
+          dotnet run --project tests/SoundPreviewer.Tests -c Release --no-build -- --filter "macOS bundles"
       - name: Verify an actual software-rendered desktop window
         shell: bash
         run: |

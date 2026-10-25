@@ -62,6 +62,7 @@ internal static partial class Program
             ("Installation-local editable directory JSON preserves identities and refuses conflicting edits", TestDirectoryConfigurationAsync),
             ("Upgrade caches, WAL-safe backups, schema refusal and persistent category rules", TestUpgradeCacheCompatibilityAsync),
             ("Preview cleanup and directory migration preserve user metadata and sources", TestPreviewStorageAsync),
+            ("Audio Unit bundles, safe discovery and VST association", TestAudioUnitDiscoveryAsync),
             ("macOS bundles, Mach-O architectures and safe platform selection", TestMacPluginDiscoveryAsync),
             ("Installed Vital and Serum 2 metadata retain native standalone selection", TestShippingMacPluginDiscoveryAsync),
             ("Serum 2 VST3 readiness and fresh-instance protection on both platforms", TestSerum2ReadinessAsync),

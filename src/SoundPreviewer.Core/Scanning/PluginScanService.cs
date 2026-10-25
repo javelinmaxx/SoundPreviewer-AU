@@ -19,7 +19,8 @@ public sealed class PluginScanService
         {
             string extension = Path.GetExtension(path);
             if (!Directory.Exists(path) || !(extension.Equals(".app", StringComparison.OrdinalIgnoreCase) ||
-                extension.Equals(".vst", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vst3", StringComparison.OrdinalIgnoreCase))) return null;
+                extension.Equals(".vst", StringComparison.OrdinalIgnoreCase) || extension.Equals(".vst3", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".component", StringComparison.OrdinalIgnoreCase))) return null;
             string content = Path.Combine(path, "Contents"), binaries = Path.Combine(content, "MacOS");
             string plist = Path.Combine(content, "Info.plist");
             if (new[] { path, content, binaries, plist }.Any(item => (File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0)) return null;
@@ -84,7 +85,8 @@ public sealed class PluginScanService
                     string directoryExtension = Path.GetExtension(directory);
                     if (directoryExtension.Equals(".vst3", StringComparison.OrdinalIgnoreCase) ||
                         directoryExtension.Equals(".vst", StringComparison.OrdinalIgnoreCase) ||
-                        directoryExtension.Equals(".app", StringComparison.OrdinalIgnoreCase))
+                        directoryExtension.Equals(".app", StringComparison.OrdinalIgnoreCase) ||
+                        directoryExtension.Equals(".component", StringComparison.OrdinalIgnoreCase))
                     {
                         if (Directory.Exists(Path.Combine(directory, "Contents", "MacOS"))) InspectMacBundle(directory);
                         else if (directoryExtension.Equals(".vst3", StringComparison.OrdinalIgnoreCase)) InspectBundle(directory);
@@ -132,6 +134,7 @@ public sealed class PluginScanService
             PluginBinaryFormat format = Path.GetExtension(bundle).ToLowerInvariant() switch
             {
                 ".app" => PluginBinaryFormat.Standalone,
+                ".component" => PluginBinaryFormat.AudioUnit,
                 ".vst3" => PluginBinaryFormat.Vst3,
                 _ => PluginBinaryFormat.Vst2
             };
@@ -140,7 +143,8 @@ public sealed class PluginScanService
             string identifier = metadata.GetValueOrDefault("CFBundleIdentifier", "");
             string version = metadata.GetValueOrDefault("CFBundleShortVersionString", metadata.GetValueOrDefault("CFBundleVersion", ""));
             string fileName = Path.GetFileNameWithoutExtension(bundle);
-            if (IsSerumEffect(fileName) || IsSerumEffect(product) || IsSerumEffect(identifier)) return;
+            if (format != PluginBinaryFormat.AudioUnit &&
+                (IsSerumEffect(fileName) || IsSerumEffect(product) || IsSerumEffect(identifier))) return;
             SynthKind synth = IdentifyMac(fileName, product, identifier, version);
             if (format == PluginBinaryFormat.Standalone && synth != SynthKind.Vital) return;
             string name = synth == SynthKind.Unknown ? (string.IsNullOrWhiteSpace(product) ? fileName : product.Trim()) : PresetDetection.SynthName(synth);
@@ -149,7 +153,9 @@ public sealed class PluginScanService
                 Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(binary))).ToLowerInvariant(),
                 Synth = synth, FilePath = bundle, BinaryPath = binary, Version = version.Trim(),
                 Architecture = native, Platform = PluginPlatform.MacOS, Format = format, Name = name,
-                Reason = synth == SynthKind.Unknown
+                Reason = format == PluginBinaryFormat.AudioUnit
+                    ? "已发现 AUv2 .component 包并读取 Mach-O 架构；未验证 macOS 注册、授权或可加载性。Logic .patch 请使用本地网页预览器；桌面音源预制后端尚不支持 AU。"
+                    : synth == SynthKind.Unknown
                     ? "macOS 包及 Mach-O 入口有效，但产品 / 厂商标识不足以确认音源；文件名不作为唯一身份依据。"
                     : $"macOS 包名称、产品 / 厂商标识对应 {name}，Mach-O 架构为 {native}；仅检查元数据和入口，未实例化插件。"
             });

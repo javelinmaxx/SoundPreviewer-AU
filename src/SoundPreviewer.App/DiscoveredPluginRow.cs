@@ -14,9 +14,10 @@ public sealed class DiscoveredPluginRow(DiscoveredPlugin record, IReadOnlyList<P
     };
     public string FormatLabel => Record.Format switch
     {
-        PluginBinaryFormat.Vst2 => "VST2", PluginBinaryFormat.Vst3 => "VST3", _ => "独立程序"
+        PluginBinaryFormat.AudioUnit => "AU", PluginBinaryFormat.Vst2 => "VST2", PluginBinaryFormat.Vst3 => "VST3", _ => "独立程序"
     };
-    public string StatusLabel => configurations.Any(p => PluginSelectionService.Matches(p, Record)) ? "已关联"
+    public string StatusLabel => Record.Format == PluginBinaryFormat.AudioUnit ? "已发现 AU · Logic 网页预览"
+        : configurations.Any(p => PluginSelectionService.Matches(p, Record)) ? "已关联"
         : Record.Synth == SynthKind.Unknown ? "未支持音源"
         : !PluginSelectionService.IsCompatible(Record) ? "位数待适配" : "可选版本";
 }

@@ -183,8 +183,13 @@ public static class ApplicationPaths
         return candidate.Equals(root, PathComparison) || candidate.StartsWith(root + Path.DirectorySeparatorChar, PathComparison);
     }
 
+    // AUv2 bundles live here; Apple's built-in and AUv3 units need registry discovery.
+    public static IReadOnlyList<string> AudioUnitDirectories =>
+        ["/Library/Audio/Plug-Ins/Components",
+         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library/Audio/Plug-Ins/Components")];
+
     public static IReadOnlyList<string> DefaultPluginDirectories => OperatingSystem.IsMacOS()
-        ? ["/Library/Audio/Plug-Ins/VST", "/Library/Audio/Plug-Ins/VST3",
+        ? [.. AudioUnitDirectories, "/Library/Audio/Plug-Ins/VST", "/Library/Audio/Plug-Ins/VST3",
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library/Audio/Plug-Ins/VST"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library/Audio/Plug-Ins/VST3"),
             "/Applications", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Applications")]

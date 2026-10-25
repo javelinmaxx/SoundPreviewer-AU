@@ -68,7 +68,9 @@ internal static class MachOPluginMetadata
         if (count > 65536 || size > MaximumTableBytes || headerSize + (long)size > length || count > size / 8)
             throw new InvalidDataException("Mach-O 加载命令表无效。");
         byte[] commands = ReadAt(file, start + headerSize, (int)size);
-        bool entryFound = format == PluginBinaryFormat.Standalone;
+        // AU factory names are declared by each bundle and are not VST entry points.
+        // Discovery checks the binary structure only; it does not prove AU registration.
+        bool entryFound = format is PluginBinaryFormat.Standalone or PluginBinaryFormat.AudioUnit;
         int position = 0;
         for (uint i = 0; i < count; i++)
         {

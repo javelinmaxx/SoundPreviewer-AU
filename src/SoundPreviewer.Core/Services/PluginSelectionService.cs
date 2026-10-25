@@ -192,7 +192,7 @@ public static class PluginSelectionService
         var changed = 0;
         foreach (var configuration in configurations.Where(p => p.Synth != SynthKind.Unknown))
         {
-            var candidates = discovered.Where(p => p.Synth == configuration.Synth &&
+            var candidates = discovered.Where(p => p.Format != PluginBinaryFormat.AudioUnit && p.Synth == configuration.Synth &&
                     (IsCompatible(p, platform, architecture) || CanUseX86Host(configuration, p, x86HostPath, platform))
                     && (p.Format != PluginBinaryFormat.Standalone || configuration.Backend is RenderBackend.Unconfigured or RenderBackend.VitalCli))
                 .OrderBy(p => Preference(p, configuration.Synth)).ThenByDescending(p => ParseVersion(p.Version))
@@ -221,6 +221,8 @@ public static class PluginSelectionService
     public static void Assign(PluginConfiguration configuration, DiscoveredPlugin plugin, string? x86HostPath = null,
         PluginPlatform? platform = null, PluginArchitecture? architecture = null)
     {
+        if (plugin.Format == PluginBinaryFormat.AudioUnit)
+            throw new ArgumentException("AU 已发现，但桌面预制后端尚不支持 AU。Logic .patch 请使用 Start-LogicPreview-Web.command（localhost:5002）。");
         if (plugin.Synth == SynthKind.Unknown || configuration.Synth != plugin.Synth)
             throw new ArgumentException("扫描结果不能关联到此音源。");
         if (plugin.Platform != (platform ?? CurrentPlatform)) throw new ArgumentException("所选音源与当前操作系统不兼容，请选择本平台版本。");

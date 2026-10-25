@@ -1114,10 +1114,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 _settings.PluginDirectories = PluginDirectories.ToList();
                 SaveDirectoryConfiguration(_settings);
             }
+            // Existing installations already have saved VST-only roots. Include the
+            // AU locations for this scan without rewriting the user's directory list.
+            var scanDirectories = OperatingSystem.IsMacOS()
+                ? PluginDirectories.Concat(ApplicationPaths.AudioUnitDirectories).Distinct(StringComparer.Ordinal).ToList()
+                : PluginDirectories.ToList();
             _taskTitle = "正在扫描已安装音源";
             _statusMessage = "正在扫描系统、用户和自定义安装目录…";
             NotifyAll();
-            var result = await new PluginScanService().ScanAsync(PluginDirectories.ToList(), token);
+            var result = await new PluginScanService().ScanAsync(scanDirectories, token);
             var merged = MergePluginScanResults(result, _settings.DiscoveredPlugins);
             var associated = PluginSelectionService.ApplyAutomatic(result.Plugins, Plugins, X86HostPath);
             PluginSelectionService.ApplyPreparedDawDreamer(Plugins, App.DataDirectory, merged);
@@ -1141,6 +1146,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (DiscoveredPluginGrid.SelectedItem is not DiscoveredPluginRow row) return;
         await RunTask(async token =>
         {
+            if (row.Record.Format == PluginBinaryFormat.AudioUnit)
+                throw new ArgumentException("AU 已发现，但桌面预制后端尚不支持 AU。Logic .patch 请运行 Start-LogicPreview-Web.command，打开 http://localhost:5002。");
             var configuration = Plugins.FirstOrDefault(p => p.Synth == row.Record.Synth)
                 ?? throw new ArgumentException("此插件尚不属于支持的音源类型。");
             PluginSelectionService.Assign(configuration, row.Record, X86HostPath);
